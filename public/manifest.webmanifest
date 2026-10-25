@@ -1,0 +1,10 @@
+{
+  "name": "Divinatey",
+  "short_name": "Divinatey",
+  "description": "I Ching + Tarot drawn from this exact moment in time.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f5ff",
+  "theme_color": "#f7f5ff",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
