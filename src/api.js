@@ -18,7 +18,9 @@ async function call(method, path, body, withAuth) {
   catch (e) { throw new ApiError(0, "network"); }
   const isJson = (res.headers.get("content-type") || "").includes("application/json");
   const data = isJson ? await res.json().catch(() => ({})) : {};
-  if (!res.ok) throw new ApiError(res.status, data.error || (isJson ? undefined : "no_server"));
+  // Non-JSON errors come from the host, not Divinatey: a gateway timeout (502/503/504)
+  // or no API server at all (404).
+  if (!res.ok) throw new ApiError(res.status, data.error || (isJson ? undefined : res.status >= 502 ? "timeout" : "no_server"));
   // A web page instead of JSON means the site is being served without its API server.
   if (!isJson) throw new ApiError(res.status, "no_server");
   return data;
@@ -61,6 +63,11 @@ export function chartErrorText(err) {
 
 export function oracleErrorText(err) {
   if (err instanceof ApiError) {
+    if (err.code === "network") return "Couldn't reach Divinatey. Check your connection, then try again.";
+    if (err.code === "timeout") return "The oracle took too long to answer and the connection was closed. Try again; with charts linked, answers can take up to half a minute. (Error " + err.status + ")";
+    if (err.code === "no_server") return "The oracle isn't reachable: this site is running without Divinatey's server. (Error: no_server)";
+    if (err.code === "upstream") return "The oracle's AI service had a problem just now. Try again in a moment. (Error 502: upstream)";
+    if (err.code === "internal") return "Something went wrong on our side. Try again in a moment. (Error 500)";
     if (err.code === "paid_required" || err.code === "signed_out") return "Chat with the oracle is part of the paid plan.";
     if (err.code === "question_limit") return "You've asked this week's 5 questions with your charts linked. Untick your charts to keep chatting, or come back next week. (Extra questions open with payments.)";
     if (err.status === 429) return "The oracle needs a moment to rest. Try again in a few minutes.";

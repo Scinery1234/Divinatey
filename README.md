@@ -60,6 +60,7 @@ If the app runs behind a reverse proxy or load balancer, set `TRUST_PROXY=1` so 
 | `EXPLAIN_PER_10MIN` | `60` | Chart explanations and reading sections per IP (paid and preview) |
 | `ANTHROPIC_QUICK_MODEL` | `claude-haiku-5-5` | Fast model for picking chart facts and polishing linked replies |
 | `LINKED_QUESTIONS_PER_WEEK` | `5` | Draws a paid account can ask with linked charts each week |
+| `LINKED_TIME_BUDGET_MS` | `25000` | After this long, a linked reply skips the polish step so it finishes before host time limits |
 
 If a request is declined on policy grounds, it's automatically retried on Anthropic's recommended fallback model (`fallbacks: "default"`).
 
@@ -90,6 +91,8 @@ Under a reading, paid accounts (and the preview) have a **Bring in my charts** b
 2. **Make sense**: private notes on how the draw and those facts fit together.
 3. **Insight**: the reply, in plain words, with at most one explained term.
 4. **Polish**: a fast model edits for clarity, jargon and length.
+
+The fast-model steps are optional: if the key can't use the fast model it falls back to the main one; if picking facts fails, a default set is used (core placements plus current transits); if polishing fails or time runs short, the draft is sent. Step timings are logged as `Linked chat steps (ms)`.
 
 Changing the linked charts (adding, removing, editing or unlinking) re-answers the latest question with the new set, marked "↻ updated with your charts". The reply shows a light *drew on* line in plain words, e.g. "how you make decisions (Human Design)". Only chart data goes in, never text from an earlier reading. Each draw asked with linked charts uses one of the week's `LINKED_QUESTIONS_PER_WEEK` (5) questions; follow-ups on the same draw are free, and the preview is unlimited. Run `supabase/migrations/0002_linked_questions.sql` for the weekly count.
 

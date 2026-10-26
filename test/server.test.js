@@ -40,6 +40,11 @@ before(async () => {
     req.on("end", () => {
       const body = JSON.parse(data);
       requests.push({ headers: req.headers, body });
+      // Simulate an API key that can't use the fast model.
+      if (/haiku/.test(body.model) && JSON.stringify(body.messages).includes("FASTDOWN")) {
+        res.statusCode = 404; res.setHeader("content-type", "application/json");
+        return res.end(JSON.stringify({ type: "error", error: { type: "not_found_error", message: "model: " + body.model } }));
+      }
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify({ id: "msg_1", type: "message", role: "assistant", model: body.model, usage: { input_tokens: 1, output_tokens: 1 }, ...reply(body) }));
     });
@@ -202,4 +207,16 @@ test("divination chat with linked charts: four steps, plain reply, drew-on line,
   assert.equal(over.body.error, "question_limit");
   assert.equal((await post("/api/chat", { seed: d6.seed, history }, PAID)).status, 200, "unlinked chat is unaffected");
   assert.equal((await post("/api/chat", { seed, history, charts: [{ system: "tarot" }] }, PAID)).status, 400);
+});
+
+test("linked chat still answers when the fast model isn't available", async () => {
+  const { body: { seed } } = await post("/api/draw", {});
+  const charts = [{ system: "human-design", date: "1990-07-15", time: "14:30", tz: "Australia/Sydney" }];
+  requests.length = 0;
+  const r = await post("/api/chat", { seed, history: [{ role: "user", text: "FASTDOWN: will it work out?" }], charts }, "test:u-paid2:p2@example.com:paid");
+  assert.equal(r.status, 200);
+  assert.equal(r.body.reply, "Polished reply. What do you notice?");
+  const models = requests.map(q => q.body.model);
+  assert.equal(models.filter(m => /haiku/.test(m)).length, 2, "fast model tried for retrieve and polish");
+  assert.equal(models.filter(m => !/haiku/.test(m)).length, 4, "then the main model for all four steps");
 });

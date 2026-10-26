@@ -11,7 +11,21 @@ export class OracleRefusal extends Error {}
 
 // On a policy decline the API re-runs the request on Anthropic's recommended
 // fallback model; a refusal that survives the chain surfaces as OracleRefusal.
-async function ask({ system, messages, schema, quick }) {
+// quick: use the fast model; if this API key can't use it, fall back to MODEL.
+async function ask(opts) {
+  if (opts.quick) {
+    try { return await askOnce(opts); }
+    catch (err) {
+      const modelProblem = err instanceof Anthropic.APIError && (err.status === 404 || (err.status === 400 && /model/i.test(err.message || "")));
+      if (!modelProblem) throw err;
+      console.warn("Fast model unavailable (" + QUICK_MODEL + "); using " + MODEL + ":", err.status, err.message);
+      return askOnce({ ...opts, quick: false });
+    }
+  }
+  return askOnce(opts);
+}
+
+async function askOnce({ system, messages, schema, quick }) {
   const effort = quick ? {} : { effort: EFFORT };
   const res = await client.beta.messages.create({
     model: quick ? QUICK_MODEL : MODEL,
@@ -150,24 +164,39 @@ const NOTES_SCHEMA = obj({
 });
 const transcript = history => history.slice(-7).map(m => (m.role === "user" ? "Person: " : "Oracle: ") + m.text).join("\n");
 
+// Hosts often cut requests off at 30-60 s; finish within this budget by
+// skipping the optional polish when time is short.
+const LINKED_BUDGET_MS = Number(process.env.LINKED_TIME_BUDGET_MS) || 25000;
+
+// A sensible default when the fact-picking step fails: what's happening now,
+// plus the first (core) entry of each linked chart.
+function defaultFacts(charts) {
+  const now = charts.flatMap(c => c.cards.filter(k => k.kind === "transit").slice(0, 2));
+  const core = charts.map(c => c.cards.find(k => k.kind === "chart")).filter(Boolean);
+  return [...core, ...now].slice(0, 6);
+}
+
 export async function linkedChat(r, synthesis, history, charts) {
+  const t0 = Date.now(), times = {};
+  const step = async (name, fn) => { const t = Date.now(); try { return await fn(); } finally { times[name] = Date.now() - t; } };
   const question = history[history.length - 1].text;
   const all = charts.flatMap(c => c.cards.map(k => ({ ...k, label: c.label })));
   const byId = new Map(all.map(k => [k.id, k]));
 
-  // 1. Retrieve
-  const pick = await ask({
+  // 1. Retrieve (optional: falls back to default facts)
+  const pick = await step("retrieve", () => ask({
     quick: true, schema: PICK_SCHEMA,
     system: "You select background facts for a reflective conversation. Choose only facts that genuinely bear on the person's latest message.",
     messages: [{ role: "user", content:
       "Their draw: " + describeReading(r) + "\n\nConversation so far:\n" + transcript(history) +
       "\n\nChart facts (id | chart | fact):\n" + all.map(k => k.id + " | " + k.label + " | " + k.text).join("\n") +
       "\n\nReturn the ids of the 3 to 6 facts most relevant to their latest message (fewer if few apply). Prefer a mix of lasting traits and what's happening now." }],
-  });
-  const facts = (pick.ids || []).map(id => byId.get(id)).filter(Boolean).slice(0, 6);
+  })).catch(err => { if (err instanceof OracleRefusal) throw err; console.warn("Linked chat: retrieve step failed, using default facts:", err.message || err); return null; });
+  let facts = ((pick && pick.ids) || []).map(id => byId.get(id)).filter(Boolean).slice(0, 6);
+  if (!facts.length) facts = defaultFacts(charts);
 
-  // 2. Make sense
-  const notes = await ask({
+  // 2. Make sense (retried once: a malformed reply is the usual failure)
+  const notesCall = () => ask({
     schema: NOTES_SCHEMA,
     system: "You are the analyst behind the Digital Oracle of Divinatey. Write private working notes; technical terms are fine here.",
     messages: [{ role: "user", content:
@@ -181,9 +210,14 @@ export async function linkedChat(r, synthesis, history, charts) {
       "used: for each fact you actually relied on, its id and a plain-English phrase a newcomer would understand, " +
       "naming the chart in brackets, e.g. \"how you make decisions (Human Design)\" or \"what's moving in your sky this week (Natal astrology)\"." }],
   });
+  const notes = await step("make sense", () => notesCall().catch(err => {
+    if (err instanceof OracleRefusal) throw err;
+    console.warn("Linked chat: make-sense step failed once, retrying:", err.message || err);
+    return notesCall();
+  }));
 
   // 3. Insight
-  const draft = await ask({
+  const draft = await step("insight", () => ask({
     system: "You are the Digital Oracle of Divinatey. " + SAFETY,
     messages: [{ role: "user", content:
       "Their latest message: \"" + question + "\"\n\nConversation so far:\n" + transcript(history) +
@@ -191,10 +225,10 @@ export async function linkedChat(r, synthesis, history, charts) {
       "\n\nWrite your reply to them: 3-5 sentences, plain text, warm, poetic and grounded. Lead with the core insight in terms of their situation. " +
       "Weave in the draw and the charts as everyday meaning, not as labels: use at most one term from any system, and explain it in plain words if you do. " +
       "End with one reflective question." }],
-  });
+  }));
 
-  // 4. Polish
-  const reply = await ask({
+  // 4. Polish (optional: skipped when time is short; the draft is used if it fails)
+  const polish = () => ask({
     quick: true,
     system: "You are an editor for the Digital Oracle of Divinatey. " + SAFETY,
     messages: [{ role: "user", content:
@@ -203,6 +237,15 @@ export async function linkedChat(r, synthesis, history, charts) {
       "and no gate numbers, degrees, house numbers or Sanskrit; stays 3-5 sentences ending with one reflective question; keeps the meaning and warmth. " +
       "Return only the final reply, as plain text." }],
   });
+  let reply = draft;
+  if (Date.now() - t0 < LINKED_BUDGET_MS) {
+    reply = await step("polish", polish).catch(err => {
+      if (err instanceof OracleRefusal) throw err;
+      console.warn("Linked chat: polish step failed, using the draft:", err.message || err);
+      return draft;
+    }) || draft;
+  } else times.polish = "skipped";
+  console.log("Linked chat steps (ms):", JSON.stringify({ ...times, total: Date.now() - t0 }));
 
   const seen = new Set();
   const drewOn = (notes.used || []).filter(u => byId.has(u.id) && u.plain && !seen.has(u.plain) && seen.add(u.plain)).map(u => u.plain).slice(0, 4);
