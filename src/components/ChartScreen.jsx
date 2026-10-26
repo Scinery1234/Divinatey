@@ -42,7 +42,7 @@ export function ChartNav({ current, onNav, hideDraw }) {
   );
 }
 
-function PlacePicker({ value, onPick }) {
+export function PlacePicker({ value, onPick }) {
   const [q, setQ] = useState(value ? value.label : "");
   const [list, setList] = useState([]);
   const [active, setActive] = useState(-1);

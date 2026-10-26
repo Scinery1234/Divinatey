@@ -7,6 +7,7 @@ import { PageOverlay, CrisisOverlay, CardMini, Divider, FooterLinks, VikLink } f
 import { ChartScreen, ChartNav, CHART_SYSTEMS } from "./components/ChartScreen.jsx";
 import { AccountScreen } from "./components/AccountScreen.jsx";
 import { ChatTeaser, SuggestedChips } from "./components/ChatTeaser.jsx";
+import { LinkBar, linkedChartBodies } from "./components/LinkCharts.jsx";
 import { useAuth } from "./auth.js";
 import { PREVIEW, routePath, href } from "./preview.js";
 import { loadSession, saveSession } from "./session.js";
@@ -14,6 +15,7 @@ import { loadSession, saveSession } from "./session.js";
 const now = () => new Date().toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"});
 const hexChar = n => n ? String.fromCodePoint(0x4DC0+n-1) : "?";
 const lineGlyph = v => ({6:"— × —",7:"———",8:"— —",9:"——○"}[v]||"—");
+const LINK_STEPS = ["looking at your charts ✦","making sense of it ✦","putting it into words ✦"];
 const INTERPRET_STEPS = ["consulting the I Ching ✦","drawing the Tarot ✦","weaving the synthesis ✦"];
 
 // Overlay pages live at /about, /terms and /privacy so they can be linked to.
@@ -110,14 +112,18 @@ export default function App() {
   // Keep the last reading (and its chat) for this tab, so leaving and coming back,
   // or refreshing, shows it again.
   const restored = useRef(false);
+  const [linked, setLinked] = useState(null);           // {systems, person}: charts the chat may draw on
+  const [linkStep, setLinkStep] = useState(0);
+  const [questions, setQuestions] = useState(null);     // {used, max} this week, for paid accounts
   useEffect(function(){
     const saved = loadSession().reading;
     if (saved && saved.draw) { setDraw(saved.draw); setInterp(saved.interp || null); setMsgs(saved.msgs || []); setPhase("ready"); }
+    if (saved && saved.linked) setLinked(saved.linked);
     restored.current = true;
   }, []);
   useEffect(function(){
-    if (restored.current && phase === "ready" && draw) saveSession({ reading: { draw, interp, msgs } });
-  }, [phase, draw, interp, msgs]);
+    if (restored.current && phase === "ready" && draw) saveSession({ reading: { draw, interp, msgs, linked } });
+  }, [phase, draw, interp, msgs, linked]);
 
   useEffect(function(){ bottomRef.current && bottomRef.current.scrollIntoView({behavior:"smooth"}); }, [msgs, chatLoading, interp]);
 
@@ -162,16 +168,21 @@ export default function App() {
     if (detectCrisis(text)) setCrisis(true);
     const history = [...msgs, {role:"user",text,ts:now()}];
     const id = drawId.current;
+    const charts = linkedChartBodies(linked);
     setMsgs(history); setChatLoading(true); setChatError(null);
+    let ticker = null;
+    if (charts.length) { setLinkStep(0); ticker = setInterval(function(){ setLinkStep(function(s){ return Math.min(s+1, LINK_STEPS.length-1); }); }, 5000); }
     try {
-      const { reply } = await askOracle(draw.seed, interp && interp.synthesis, history);
+      const out = await askOracle(draw.seed, interp && interp.synthesis, history, charts);
       if (id !== drawId.current) return;
-      setMsgs(function(p){ return [...p, {role:"assistant",text:reply,ts:now()}]; });
+      if (out.questions) setQuestions(out.questions);
+      setMsgs(function(p){ return [...p, {role:"assistant",text:out.reply,ts:now(),drewOn:out.drewOn||undefined}]; });
     } catch (err) {
       if (id !== drawId.current) return;
       // Drop the unanswered message so the conversation stays well-formed.
       setMsgs(msgs); setInput(text); setChatError(oracleErrorText(err));
     } finally {
+      if (ticker) clearInterval(ticker);
       if (id === drawId.current) setChatLoading(false);
     }
     setTimeout(function(){ inputRef.current && inputRef.current.focus(); }, 80);
@@ -332,7 +343,11 @@ export default function App() {
           )}
 
           {interp && phase==="ready" && (canChat
-            ? (msgs.length===0 && !chatLoading && <SuggestedChips reading={reading} onAsk={sendChat} disabled={chatLoading}/>)
+            ? <>
+                <LinkBar linked={linked} onChange={setLinked} auth={auth} disabled={chatLoading}/>
+                {questions && linked && linked.systems.length > 0 && <p style={{fontSize:11,color:T.dim,textAlign:"center",margin:"-6px 0 12px"}}>questions with charts this week: {questions.used} of {questions.max}</p>}
+                {msgs.length===0 && !chatLoading && <SuggestedChips reading={reading} onAsk={sendChat} disabled={chatLoading}/>}
+              </>
             : <ChatTeaser reading={reading} auth={auth} pulse={pulse} innerRef={teaserRef}
                 onSignIn={function(){goChart("account");}} onAccount={function(){goChart("account");}}/>)}
 
@@ -340,10 +355,11 @@ export default function App() {
             {msgs.map(function(m,i){ const mine = m.role==="user"; return (
               <div key={i} style={{display:"flex",flexDirection:"column",alignItems:mine?"flex-end":"flex-start",marginBottom:12}}>
                 <div style={{maxWidth:"82%",padding:"12px 16px",borderRadius:mine?"18px 18px 4px 18px":"18px 18px 18px 4px",background:mine?GRAD:T.surface,color:mine?"#fff":T.muted,fontSize:14,lineHeight:1.75,whiteSpace:"pre-wrap",border:mine?"none":"1px solid "+T.border,fontFamily:"Georgia,serif"}}>{m.text}</div>
+                {m.drewOn && m.drewOn.length > 0 && <div style={{maxWidth:"82%",fontSize:11,color:T.purple,marginTop:5,padding:"0 4px",lineHeight:1.5}}>✦ drew on: {m.drewOn.join(" · ")}</div>}
                 <div style={{fontSize:9,color:T.dim,marginTop:3,padding:"0 4px"}}>{m.ts}</div>
               </div>
             ); })}
-            {chatLoading && <div style={{display:"flex",marginBottom:12}}><div className="pulse" style={{padding:"12px 16px",borderRadius:"18px 18px 18px 4px",background:T.surface,border:"1px solid "+T.border,color:T.dim,fontSize:20}} aria-label="the oracle is thinking">···</div></div>}
+            {chatLoading && <div style={{display:"flex",marginBottom:12}}><div className="pulse" style={{padding:"12px 16px",borderRadius:"18px 18px 18px 4px",background:T.surface,border:"1px solid "+T.border,color:T.dim,fontSize:20}} aria-label="the oracle is thinking">{linkedChartBodies(linked).length ? <span style={{fontSize:12,fontWeight:600,letterSpacing:0.5,color:T.purple}}>{LINK_STEPS[linkStep]}</span> : "···"}</div></div>}
             {chatError && <p style={{fontSize:13,color:T.pink,textAlign:"center",margin:"0 0 12px"}}>{chatError}</p>}
           </div>
 

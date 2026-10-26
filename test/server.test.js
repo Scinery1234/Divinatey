@@ -12,6 +12,16 @@ function reply(body) {
   const fmt = body.output_config && body.output_config.format;
   const content = body.messages[0].content;
   let text = "A warm reply. What do you notice?";
+  if (fmt && content.includes("Return the ids")) {
+    const ids = [...content.matchAll(/^([a-z-]+:[a-z0-9]+:\d+) \|/gm)].map(m => m[1]);
+    return { stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ ids: [ids[0], ids.find(i => i.includes(":now:")) || ids[1]] }) }] };
+  }
+  if (fmt && content.includes("used: for each fact")) {
+    const id = (/^([a-z-]+:[a-z0-9]+:\d+) \|/m.exec(content) || [])[1];
+    return { stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ draw: "d", chart: "c", fit: "f", core: "core insight",
+      used: [{ id, plain: "how you make decisions (Human Design)" }, { id: "made:up:9", plain: "invented" }] }) }] };
+  }
+  if (!fmt && content.startsWith("The person asked:")) return { stop_reason: "end_turn", content: [{ type: "text", text: "Polished reply. What do you notice?" }] };
   if (fmt) {
     if (content.startsWith("Hexagram")) text = JSON.stringify({ primary: "p", lines: "", resulting: "r" });
     else if (content.startsWith("Seven")) {
@@ -153,4 +163,43 @@ test("chart explanations and readings: paid only, one prompt per item, cached", 
   assert.equal(r.status, 200);
   assert.match(requests[0].body.messages[0].content, /Transits to their chart/);
   assert.equal((await post("/api/chart-reading", { chart, section: 4, technical: true }, PAID)).status, 400, "section 4 has no technical context");
+});
+
+test("divination chat with linked charts: four steps, plain reply, drew-on line, weekly count", async () => {
+  const { body: { seed } } = await post("/api/draw", {});
+  const charts = [
+    { system: "human-design", date: "1990-07-15", time: "14:30", tz: "Australia/Sydney" },
+    { system: "natal", date: "1990-07-15", time: "14:30", tz: "Australia/Sydney", lat: -33.87, lon: 151.21 },
+  ];
+  const history = [{ role: "user", text: "Should I take the new job?" }];
+  requests.length = 0;
+  const r = await post("/api/chat", { seed, synthesis: "s", history, charts }, PAID);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.reply, "Polished reply. What do you notice?");
+  assert.deepEqual(r.body.drewOn, ["how you make decisions (Human Design)"], "only facts that were offered, in plain words");
+  assert.deepEqual(r.body.questions, { used: 1, max: 5 });
+  assert.equal(requests.length, 4, "retrieve, make sense, insight, polish");
+  const [pick, notes, draft, polish] = requests.map(q => q.body);
+  assert.match(pick.messages[0].content, /human-design:type:0 \| Human Design \| Type · Projector/);
+  assert.match(pick.messages[0].content, /natal:big3:0 \| Natal astrology/);
+  assert.match(pick.model, /haiku/);
+  assert.match(notes.messages[0].content, /Relevant facts from the charts they chose to link/);
+  assert.doesNotMatch(notes.messages[0].content, /natal:planets:5/, "only the picked facts go forward");
+  assert.match(draft.messages[0].content, /Core insight: core insight/);
+  assert.match(polish.model, /haiku/);
+  assert.equal(pick.output_config.effort, undefined, "no effort setting on the fast model");
+
+  const followUp = await post("/api/chat", { seed, history: [...history, { role: "assistant", text: "x" }, { role: "user", text: "And money?" }], charts }, PAID);
+  assert.deepEqual(followUp.body.questions, { used: 1, max: 5 }, "follow-ups on the same draw are free");
+
+  for (let i = 2; i <= 5; i++) {
+    const { body: d } = await post("/api/draw", {});
+    assert.equal((await post("/api/chat", { seed: d.seed, history, charts }, PAID)).body.questions.used, i);
+  }
+  const { body: d6 } = await post("/api/draw", {});
+  const over = await post("/api/chat", { seed: d6.seed, history, charts }, PAID);
+  assert.equal(over.status, 429);
+  assert.equal(over.body.error, "question_limit");
+  assert.equal((await post("/api/chat", { seed: d6.seed, history }, PAID)).status, 200, "unlinked chat is unaffected");
+  assert.equal((await post("/api/chat", { seed, history, charts: [{ system: "tarot" }] }, PAID)).status, 400);
 });

@@ -152,5 +152,24 @@ export function chartChatContext(inp) {
   };
 }
 
+const SYSTEM_PLAIN = { "gene-keys": "Gene Keys", "human-design": "Human Design", "natal": "Natal astrology", "vedic": "Vedic astrology" };
+const TRANSIT_KEYS = { "gene-keys": ["personalTech"], "human-design": ["personal"], "natal": ["personal"], "vedic": ["personal"] };
+
+// A linked chart as short fact cards the divination chat can retrieve from:
+// one card per placement (from the chart guide) plus one per current transit.
+// Only data: no generated text from any earlier reading.
+export function chartFactCards(inp) {
+  const { engine, chart } = computeChart(inp);
+  const sys = inp.system, cards = [];
+  engine.referenceData(chart).forEach(t => t.items.forEach((it, i) => cards.push({
+    id: `${sys}:${t.key}:${i}`, system: sys, kind: "chart",
+    text: [it.title, plain(it.code), plain(it.sub), it.role ? "(" + it.role + ")" : ""].filter(Boolean).join(" · "),
+  })));
+  const data = engine.SYSTEM.reading.data(chart);
+  (TRANSIT_KEYS[sys] || []).forEach(k => String(data[k] || "").split("\n").map(l => l.trim()).filter(l => l && !/^none$|^no /i.test(l))
+    .slice(0, 12).forEach((l, i) => cards.push({ id: `${sys}:now:${i}`, system: sys, kind: "transit", text: "Today: " + l })));
+  return { system: sys, label: SYSTEM_PLAIN[sys], name: inp.name, cards };
+}
+
 export const systemMeta = () => Object.fromEntries(Object.entries(engines).map(([id, e]) =>
   [id, { title: e.SYSTEM.formTitle, sub: e.SYSTEM.formSub, needsLocation: !!e.SYSTEM.needsLocation }]));

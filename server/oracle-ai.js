@@ -4,20 +4,23 @@ import { describeReading } from "../shared/oracle.js";
 const client = new Anthropic();
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-5-5";
 const EFFORT = process.env.ORACLE_EFFORT || "low";
+// Fast model for the small steps of the linked-chart chat (picking facts, polishing).
+const QUICK_MODEL = process.env.ANTHROPIC_QUICK_MODEL || "claude-haiku-5-5";
 
 export class OracleRefusal extends Error {}
 
 // On a policy decline the API re-runs the request on Anthropic's recommended
 // fallback model; a refusal that survives the chain surfaces as OracleRefusal.
-async function ask({ system, messages, schema }) {
+async function ask({ system, messages, schema, quick }) {
+  const effort = quick ? {} : { effort: EFFORT };
   const res = await client.beta.messages.create({
-    model: MODEL,
+    model: quick ? QUICK_MODEL : MODEL,
     max_tokens: 16000,
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
     output_config: schema
-      ? { effort: EFFORT, format: { type: "json_schema", schema } }
-      : { effort: EFFORT },
+      ? { ...effort, format: { type: "json_schema", schema } }
+      : effort,
     system,
     messages,
   });
@@ -126,4 +129,82 @@ export function writeText(prompt) {
     system: "Write in plain text without markdown, headings or bullet points. Keep to the length asked for.",
     messages: [{ role: "user", content: prompt }],
   });
+}
+
+// ── Divination chat with linked charts ──────────────────────────────────────
+// Four steps, only the last of which the person sees:
+//   1. retrieve: pick the few chart facts that bear on this message (fast model)
+//   2. make sense: private notes on how the draw and those facts fit together
+//   3. insight: the reply, in plain words, with at most one explained term
+//   4. polish: edit for clarity, jargon and length (fast model)
+// Only chart data goes in (fact cards recalculated from birth details), never
+// text from an earlier reading or explanation.
+const SAFETY =
+  "This is a tool for reflection, not prediction or professional advice. If the person describes a medical, legal or financial decision, " +
+  "gently encourage appropriate professional guidance. If they express thoughts of suicide or self-harm, set the reading aside, respond with care, " +
+  "and encourage them to contact Lifeline on 13 11 14 or emergency services on 000.";
+const PICK_SCHEMA = obj({ ids: { type: "array", items: str } });
+const NOTES_SCHEMA = obj({
+  draw: str, chart: str, fit: str, core: str,
+  used: { type: "array", items: obj({ id: str, plain: str }) },
+});
+const transcript = history => history.slice(-7).map(m => (m.role === "user" ? "Person: " : "Oracle: ") + m.text).join("\n");
+
+export async function linkedChat(r, synthesis, history, charts) {
+  const question = history[history.length - 1].text;
+  const all = charts.flatMap(c => c.cards.map(k => ({ ...k, label: c.label })));
+  const byId = new Map(all.map(k => [k.id, k]));
+
+  // 1. Retrieve
+  const pick = await ask({
+    quick: true, schema: PICK_SCHEMA,
+    system: "You select background facts for a reflective conversation. Choose only facts that genuinely bear on the person's latest message.",
+    messages: [{ role: "user", content:
+      "Their draw: " + describeReading(r) + "\n\nConversation so far:\n" + transcript(history) +
+      "\n\nChart facts (id | chart | fact):\n" + all.map(k => k.id + " | " + k.label + " | " + k.text).join("\n") +
+      "\n\nReturn the ids of the 3 to 6 facts most relevant to their latest message (fewer if few apply). Prefer a mix of lasting traits and what's happening now." }],
+  });
+  const facts = (pick.ids || []).map(id => byId.get(id)).filter(Boolean).slice(0, 6);
+
+  // 2. Make sense
+  const notes = await ask({
+    schema: NOTES_SCHEMA,
+    system: "You are the analyst behind the Digital Oracle of Divinatey. Write private working notes; technical terms are fine here.",
+    messages: [{ role: "user", content:
+      "Their draw: " + describeReading(r) + (synthesis ? "\nThe synthesis they were shown: \"" + synthesis + "\"" : "") +
+      "\n\nConversation so far:\n" + transcript(history) +
+      "\n\nRelevant facts from the charts they chose to link:\n" + (facts.map(k => k.id + " | " + k.label + " | " + k.text).join("\n") || "(none apply)") +
+      "\n\ndraw: what the cards and hexagram say about their latest message (2-3 sentences).\n" +
+      "chart: what the chart facts add (2-3 sentences), or an empty string if none apply.\n" +
+      "fit: where the draw and the charts agree or pull against each other (1-2 sentences).\n" +
+      "core: the single most useful insight for them right now (1-2 sentences).\n" +
+      "used: for each fact you actually relied on, its id and a plain-English phrase a newcomer would understand, " +
+      "naming the chart in brackets, e.g. \"how you make decisions (Human Design)\" or \"what's moving in your sky this week (Natal astrology)\"." }],
+  });
+
+  // 3. Insight
+  const draft = await ask({
+    system: "You are the Digital Oracle of Divinatey. " + SAFETY,
+    messages: [{ role: "user", content:
+      "Their latest message: \"" + question + "\"\n\nConversation so far:\n" + transcript(history) +
+      "\n\nYour private notes:\n- Draw: " + notes.draw + "\n- Charts: " + notes.chart + "\n- Fit: " + notes.fit + "\n- Core insight: " + notes.core +
+      "\n\nWrite your reply to them: 3-5 sentences, plain text, warm, poetic and grounded. Lead with the core insight in terms of their situation. " +
+      "Weave in the draw and the charts as everyday meaning, not as labels: use at most one term from any system, and explain it in plain words if you do. " +
+      "End with one reflective question." }],
+  });
+
+  // 4. Polish
+  const reply = await ask({
+    quick: true,
+    system: "You are an editor for the Digital Oracle of Divinatey. " + SAFETY,
+    messages: [{ role: "user", content:
+      "The person asked: \"" + question + "\"\n\nDraft reply:\n" + draft +
+      "\n\nEdit the draft so it: directly answers what they asked; reads naturally aloud; uses at most one specialist term (explained in plain words) " +
+      "and no gate numbers, degrees, house numbers or Sanskrit; stays 3-5 sentences ending with one reflective question; keeps the meaning and warmth. " +
+      "Return only the final reply, as plain text." }],
+  });
+
+  const seen = new Set();
+  const drewOn = (notes.used || []).filter(u => byId.has(u.id) && u.plain && !seen.has(u.plain) && seen.add(u.plain)).map(u => u.plain).slice(0, 4);
+  return { reply, drewOn };
 }

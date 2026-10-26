@@ -47,12 +47,19 @@ function supabaseStore(url, serviceKey) {
     async recordUsage(day, ipHash, chartHash) {
       must(await sb.from("free_chart_usage").upsert({ day, ip_hash: ipHash, chart_hash: chartHash }, { ignoreDuplicates: true }));
     },
+    async linkedSeeds(userId, weekStart) {
+      return new Set(must(await sb.from("linked_questions").select("seed").eq("user_id", userId).eq("week_start", weekStart)).map(r => String(r.seed)));
+    },
+    async recordLinked(userId, weekStart, seed) {
+      must(await sb.from("linked_questions").upsert({ user_id: userId, week_start: weekStart, seed }, { ignoreDuplicates: true }));
+    },
   };
 }
 
 function memoryStore({ testTokens }) {
   const charts = new Map();       // userId → Map(slot → chart)
   const usage = new Map();        // day|ipHash → Set(chartHash)
+  const linked = new Map();       // userId|weekStart → Set(seed)
   return {
     accounts: !!testTokens,
     async getUser(token) {
@@ -78,6 +85,12 @@ function memoryStore({ testTokens }) {
       const k = day + "|" + ipHash;
       if (!usage.has(k)) usage.set(k, new Set());
       usage.get(k).add(chartHash);
+    },
+    async linkedSeeds(userId, weekStart) { return new Set(linked.get(userId + "|" + weekStart) || []); },
+    async recordLinked(userId, weekStart, seed) {
+      const k = userId + "|" + weekStart;
+      if (!linked.has(k)) linked.set(k, new Set());
+      linked.get(k).add(String(seed));
     },
   };
 }

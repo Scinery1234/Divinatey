@@ -1,0 +1,144 @@
+import { useState } from "react";
+import { T, GRAD } from "../theme.js";
+import { CHART_SYSTEMS, PlacePicker } from "./ChartScreen.jsx";
+import { loadSession } from "../session.js";
+
+const NEEDS_COORDS = new Set(["natal", "vedic"]);
+const field = { width: "100%", padding: "10px 12px", border: "1px solid " + T.border, borderRadius: 10, fontSize: 16, color: T.text, background: T.bg, fontFamily: "Georgia,serif" };
+const lbl = { display: "block", fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: T.muted, fontWeight: 700, margin: "0 0 6px" };
+const primary = { background: GRAD, border: "none", borderRadius: 999, color: "#fff", fontWeight: 700, cursor: "pointer", letterSpacing: 0.5 };
+const label = id => (CHART_SYSTEMS.find(s => s.id === id) || {}).label || id;
+
+// The request body for each linked chart (the server recalculates them).
+export function linkedChartBodies(linked) {
+  if (!linked || !linked.person || !linked.systems.length) return [];
+  const p = linked.person;
+  return linked.systems.map(system => ({
+    system, name: p.name || "", date: p.date, time: p.time, tz: p.place.tz,
+    ...(NEEDS_COORDS.has(system) ? { lat: parseFloat(p.lat), lon: parseFloat(p.lon) } : {}),
+  }));
+}
+
+// People the person might mean: whoever is on the chart screen, and saved charts.
+function knownPeople(auth) {
+  const out = [], seen = new Set();
+  const add = (name, b) => {
+    const k = [b.date, b.time, b.tz || (b.place && b.place.tz)].join("|");
+    if (!b.date || seen.has(k)) return; seen.add(k);
+    const place = b.place && typeof b.place === "object" ? b.place : { label: b.place || b.tz, tz: b.tz, lat: b.lat ?? NaN, lon: b.lon ?? NaN };
+    out.push({ name: name || "", date: b.date, time: b.time, place, lat: b.lat ?? place.lat ?? "", lon: b.lon ?? place.lon ?? "" });
+  };
+  const onScreen = loadSession().person;
+  if (onScreen) add(onScreen.name, { ...onScreen, tz: onScreen.place && onScreen.place.tz });
+  ((auth && auth.me && auth.me.charts) || []).forEach(c => add(c.name, c.birth));
+  return out;
+}
+
+export function LinkBar({ linked, onChange, auth, disabled }) {
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(null);       // a system ticked before any person is set
+  const systems = (linked && linked.systems) || [];
+  const toggle = id => {
+    if (!linked || !linked.person) { setPending(id); setOpen(true); return; }
+    const next = systems.includes(id) ? systems.filter(s => s !== id) : [...systems, id];
+    if (next.some(s => NEEDS_COORDS.has(s)) && !isFinite(parseFloat(linked.person.lat))) { setPending(id); setOpen(true); return; }
+    onChange({ ...linked, systems: next });
+  };
+  const p = linked && linked.person;
+  return (
+    <div style={{ margin: "4px 0 14px", padding: "12px 14px", borderRadius: 14, border: "1px solid " + T.border, background: T.surface }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 9, letterSpacing: 2, color: T.purple, textTransform: "uppercase", fontWeight: 700 }}>bring in my charts</div>
+        {p && <button className="link-btn" onClick={() => setOpen(true)} style={{ fontSize: 12, color: T.purple, fontWeight: 600 }}>
+          {(p.name || "you") + " · " + p.date} · edit</button>}
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+        {CHART_SYSTEMS.map(s => {
+          const on = systems.includes(s.id);
+          return <label key={s.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, padding: "6px 12px", borderRadius: 999, cursor: disabled ? "default" : "pointer",
+            border: "1px solid " + (on ? T.purple + "88" : T.border), background: on ? "#f1ebff" : T.bg, color: on ? T.purple : T.muted }}>
+            <input type="checkbox" checked={on} disabled={disabled} onChange={() => toggle(s.id)} style={{ accentColor: T.purple }} />{s.label}</label>;
+        })}
+      </div>
+      <p style={{ margin: "8px 0 0", fontSize: 11, color: T.dim, lineHeight: 1.6 }}>
+        {systems.length ? "The oracle will draw on these when it's relevant to what you ask." : "Tick a chart and the oracle will draw on it when it's relevant to what you ask."}
+      </p>
+      {open && <LinkPanel linked={linked} pending={pending} auth={auth}
+        onClose={() => { setOpen(false); setPending(null); }}
+        onSave={v => { onChange(v); setOpen(false); setPending(null); }} />}
+    </div>
+  );
+}
+
+function LinkPanel({ linked, pending, auth, onClose, onSave }) {
+  const people = knownPeople(auth);
+  const start = (linked && linked.person) || people[0] || null;
+  const [systems, setSystems] = useState(() => {
+    const s = new Set((linked && linked.systems) || []);
+    if (pending) s.add(pending);
+    return [...s];
+  });
+  const [name, setName] = useState(start ? start.name : "");
+  const [date, setDate] = useState(start ? start.date : "");
+  const [time, setTime] = useState(start ? start.time : "12:00");
+  const [place, setPlace] = useState(start ? start.place : null);
+  const [lat, setLat] = useState(start && start.lat != null ? String(start.lat) : "");
+  const [lon, setLon] = useState(start && start.lon != null ? String(start.lon) : "");
+  const [error, setError] = useState(null);
+  const needCoords = systems.some(s => NEEDS_COORDS.has(s));
+  const use = p => { setName(p.name); setDate(p.date); setTime(p.time); setPlace(p.place); setLat(p.lat == null ? "" : String(p.lat)); setLon(p.lon == null ? "" : String(p.lon)); };
+  const pickPlace = pl => { setPlace(pl); if (pl) { setLat(String(pl.lat)); setLon(String(pl.lon)); } };
+  const save = e => {
+    e.preventDefault();
+    if (!systems.length) return setError("Tick at least one chart.");
+    if (!date) return setError("Enter a birth date.");
+    if (!place || !place.tz) return setError("Choose a birth place from the list.");
+    if (needCoords && (!isFinite(parseFloat(lat)) || !isFinite(parseFloat(lon)))) return setError("Natal and Vedic charts need the birth place's coordinates: choose it from the list.");
+    onSave({ systems, person: { name: name.trim(), date, time, place, lat, lon } });
+  };
+  return (
+    <div role="dialog" aria-label="Link your charts" style={{ position: "fixed", inset: 0, zIndex: 70, display: "flex", justifyContent: "flex-end" }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(30,22,48,.35)" }} />
+      <form onSubmit={save} noValidate style={{ position: "relative", width: "min(460px,94vw)", height: "100%", overflowY: "auto", background: T.surface, padding: "18px 20px 40px", display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <strong style={{ fontFamily: "Georgia,serif", fontSize: 18, fontWeight: 400, color: T.text }}>Bring in your charts</strong>
+          <button type="button" onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: T.dim }}>×</button>
+        </div>
+        <p style={{ margin: 0, fontSize: 13, color: T.muted, lineHeight: 1.6 }}>The oracle looks at these charts only when it helps answer what you ask, and explains them in everyday words.</p>
+        <div>
+          <span style={lbl}>Charts</span>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {CHART_SYSTEMS.map(s => {
+              const on = systems.includes(s.id);
+              return <label key={s.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, padding: "6px 12px", borderRadius: 999, cursor: "pointer", border: "1px solid " + (on ? T.purple + "88" : T.border), background: on ? "#f1ebff" : T.bg, color: on ? T.purple : T.muted, fontWeight: 600 }}>
+                <input type="checkbox" checked={on} onChange={() => setSystems(v => on ? v.filter(x => x !== s.id) : [...v, s.id])} style={{ accentColor: T.purple }} />{s.label}</label>;
+            })}
+          </div>
+        </div>
+        {people.length > 0 && <div>
+          <span style={lbl}>Use someone you've entered</span>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {people.map((p, i) => <button type="button" key={i} onClick={() => use(p)} style={{ fontSize: 12, padding: "6px 12px", borderRadius: 999, cursor: "pointer", border: "1px solid " + T.border, background: T.bg, color: T.text }}>
+              {(p.name || "Unnamed") + " · " + p.date}</button>)}
+          </div>
+        </div>}
+        <div><label style={lbl} htmlFor="lname">Name (optional)</label><input id="lname" style={field} value={name} maxLength={60} onChange={e => setName(e.target.value)} /></div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div><label style={lbl} htmlFor="ldate">Birth date</label><input id="ldate" type="date" style={field} value={date} onChange={e => setDate(e.target.value)} /></div>
+          <div><label style={lbl} htmlFor="ltime">Birth time</label><input id="ltime" type="time" style={field} value={time} onChange={e => setTime(e.target.value)} /></div>
+        </div>
+        <div><label style={lbl} htmlFor="place">Birth place</label><PlacePicker value={place} onPick={pickPlace} /></div>
+        {needCoords && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div><label style={lbl} htmlFor="llat">Latitude</label><input id="llat" type="number" step="0.01" style={field} value={lat} onChange={e => setLat(e.target.value)} /></div>
+          <div><label style={lbl} htmlFor="llon">Longitude</label><input id="llon" type="number" step="0.01" style={field} value={lon} onChange={e => setLon(e.target.value)} /></div>
+        </div>}
+        <p style={{ margin: 0, fontSize: 11, color: T.dim, lineHeight: 1.6 }}>
+          {needCoords ? "Natal and Vedic use the exact birthplace coordinates; picking a place fills them in." : "Gene Keys and Human Design need the date, time and place (for the timezone)."}
+        </p>
+        {error && <p role="alert" style={{ margin: 0, fontSize: 13, color: T.pink }}>{error}</p>}
+        <div><button type="submit" style={{ ...primary, padding: "12px 28px", fontSize: 15 }}>link {systems.length > 1 ? "these charts" : "this chart"} ✦</button></div>
+        {systems.length > 0 && <p style={{ margin: 0, fontSize: 12, color: T.muted }}>Linking: {systems.map(label).join(", ")}</p>}
+      </form>
+    </div>
+  );
+}

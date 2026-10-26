@@ -58,6 +58,8 @@ If the app runs behind a reverse proxy or load balancer, set `TRUST_PROXY=1` so 
 | `PAID_PREVIEW` | on | Set to `0` to close the paid preview at `/preview` |
 | `PREVIEW_CHAT_PER_10MIN` | `20` | Chat messages per IP in the preview |
 | `EXPLAIN_PER_10MIN` | `60` | Chart explanations and reading sections per IP (paid and preview) |
+| `ANTHROPIC_QUICK_MODEL` | `claude-haiku-5-5` | Fast model for picking chart facts and polishing linked replies |
+| `LINKED_QUESTIONS_PER_WEEK` | `5` | Draws a paid account can ask with linked charts each week |
 
 If a request is declined on policy grounds, it's automatically retried on Anthropic's recommended fallback model (`fallbacks: "default"`).
 
@@ -79,6 +81,17 @@ Routes: `GET /api/me`, `PUT /api/charts/:slot` (paid, slots 1–2), `DELETE /api
 Paid accounts (and the preview) get, on every chart: a **chart guide** side panel where each placement, centre, house or graha has *Explain →* and each section has an overview; a four-part **reading** of the chart against today's sky; and **chat** about the chart. Routes: `POST /api/chart-explain` `{chart, tab, item | "overview"}`, `POST /api/chart-reading` `{chart, section, technical}`, `POST /api/chart-chat` `{chart, history}`. The server recalculates the chart from the birth details and builds each prompt from that one item's or section's data (the same prompts as the standalone pages), so no reading sees another. Identical prompts within an hour reuse the answer.
 
 The browser keeps the latest reading, the chart on screen, chats and explanations in session storage for the tab, so leaving a page or refreshing doesn't lose them.
+
+## Linking charts to the divination chat (paid)
+
+Under a reading, paid accounts (and the preview) can tick **Bring in my charts**. A side panel asks only for what the ticked charts need, pre-filled from the chart on screen or a saved chart, and shows coordinates only when Natal or Vedic is ticked. From then on each message is answered in four steps on the server:
+
+1. **Retrieve**: the linked charts are recalculated from the birth details and turned into short fact cards (placements plus today's transits); a fast model picks the 3–6 that bear on the message.
+2. **Make sense**: private notes on how the draw and those facts fit together.
+3. **Insight**: the reply, in plain words, with at most one explained term.
+4. **Polish**: a fast model edits for clarity, jargon and length.
+
+The reply shows a light *drew on* line in plain words, e.g. "how you make decisions (Human Design)". Only chart data goes in, never text from an earlier reading. Each draw asked with linked charts uses one of the week's `LINKED_QUESTIONS_PER_WEEK` (5) questions; follow-ups on the same draw are free, and the preview is unlimited. Run `supabase/migrations/0002_linked_questions.sql` for the weekly count.
 
 ## Paid preview
 

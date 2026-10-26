@@ -27,8 +27,8 @@ const post = (path, body) => call("POST", path, body || {}, false);
 
 export const drawReading = () => post("/api/draw");
 export const interpret = seed => post("/api/interpret", { seed });
-export const askOracle = (seed, synthesis, history) =>
-  call("POST", "/api/chat", { seed, synthesis, history: history.map(m => ({ role: m.role, text: m.text })) }, true);
+export const askOracle = (seed, synthesis, history, charts) =>
+  call("POST", "/api/chat", { seed, synthesis, history: history.map(m => ({ role: m.role, text: m.text })), ...(charts && charts.length ? { charts } : {}) }, true);
 
 const get = path => call("GET", path, undefined, false);
 
@@ -62,6 +62,7 @@ export function chartErrorText(err) {
 export function oracleErrorText(err) {
   if (err instanceof ApiError) {
     if (err.code === "paid_required" || err.code === "signed_out") return "Chat with the oracle is part of the paid plan.";
+    if (err.code === "question_limit") return "You've asked this week's 5 questions with your charts linked. Untick your charts to keep chatting, or come back next week. (Extra questions open with payments.)";
     if (err.status === 429) return "The oracle needs a moment to rest. Try again in a few minutes.";
     if (err.code === "refused") return "The oracle can't speak to that one. Try asking another way.";
     if (err.code === "busy") return "Many seekers are asking right now. Try again shortly.";

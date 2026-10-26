@@ -4,11 +4,11 @@ import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 import { divineReading, isValidSeed } from "../shared/oracle.js";
 import { getQuantumSeed } from "./seed.js";
-import { interpretReading, chat, chartChat, writeText, OracleRefusal } from "./oracle-ai.js";
+import { interpretReading, chat, chartChat, writeText, linkedChat, OracleRefusal } from "./oracle-ai.js";
 import { rateLimit } from "./rate-limit.js";
 import { freeChartLimit } from "./free-limit.js";
 import { createStore, SLOTS } from "./store.js";
-import { searchPlaces, warmPlaces, chartChatContext, guidePrompt, readingPrompt, parseChartInput, renderChart, chartKey, systemMeta, ChartInputError } from "./astro.js";
+import { searchPlaces, warmPlaces, chartChatContext, chartFactCards, guidePrompt, readingPrompt, parseChartInput, renderChart, chartKey, systemMeta, ChartInputError } from "./astro.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(here, "..", "dist");
@@ -101,13 +101,53 @@ app.post("/api/chat", aiLimit, chatAccess, async (req, res) => {
   if (!validHistory(history)) return res.status(400).json({ error: "invalid history" });
   // Keep the newest turns, starting on a user message.
   const trimmed = history.slice(-MAX_HISTORY);
+  const synth = typeof synthesis === "string" ? synthesis.slice(0, 1000) : "";
+
+  // Charts the person chose to link: recalculated here from the birth details.
+  let charts = [];
+  if (Array.isArray(req.body.charts) && req.body.charts.length) {
+    try {
+      const seen = new Set();
+      charts = req.body.charts.slice(0, 4).map(parseChartInput).filter(c => !seen.has(c.system) && seen.add(c.system)).map(chartFactCards);
+    } catch (err) {
+      if (err instanceof ChartInputError) return res.status(400).json({ error: err.message });
+      return sendError(res, err);
+    }
+  }
+  if (!charts.length) {
+    try { return res.json({ reply: await chat(reading, synth, trimmed) }); }
+    catch (err) { return sendError(res, err); }
+  }
+
+  // Linked questions: LINKED_QUESTIONS_PER_WEEK draws per paid account per week
+  // (follow-ups on the same draw are free). Unlimited in the paid preview.
+  const counted = !req.preview && req.user;
+  const week = weekStart(), seed = String(req.body.seed);
   try {
-    const reply = await chat(reading, typeof synthesis === "string" ? synthesis.slice(0, 1000) : "", trimmed);
-    res.json({ reply });
+    if (counted) {
+      const asked = await store.linkedSeeds(req.user.id, week);
+      if (!asked.has(seed) && asked.size >= LINKED_PER_WEEK)
+        return res.status(429).json({ error: "question_limit", used: asked.size, max: LINKED_PER_WEEK });
+    }
+    const out = await linkedChat(reading, synth, trimmed, charts);
+    let questions = null;
+    if (counted) {
+      await store.recordLinked(req.user.id, week, seed);
+      questions = { used: (await store.linkedSeeds(req.user.id, week)).size, max: LINKED_PER_WEEK };
+    }
+    res.json({ ...out, questions });
   } catch (err) {
     sendError(res, err);
   }
 });
+
+const LINKED_PER_WEEK = Number(process.env.LINKED_QUESTIONS_PER_WEEK) || 5;
+// Monday (UTC) of the current week, as YYYY-MM-DD.
+function weekStart(d = new Date()) {
+  const m = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  m.setUTCDate(m.getUTCDate() - ((m.getUTCDay() + 6) % 7));
+  return m.toISOString().slice(0, 10);
+}
 
 // ── Accounts ─────────────────────────────────────────────────────────────────
 const store = createStore();
