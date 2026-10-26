@@ -84,14 +84,14 @@ The browser keeps the latest reading, the chart on screen, chats and explanation
 
 ## Linking charts to the divination chat (paid)
 
-Under a reading, paid accounts (and the preview) can tick **Bring in my charts**. A side panel asks only for what the ticked charts need, pre-filled from the chart on screen or a saved chart, and shows coordinates only when Natal or Vedic is ticked. From then on each message is answered in four steps on the server:
+Under a reading, paid accounts (and the preview) have a **Bring in my charts** button. It opens a side panel where they choose charts; the panel asks only for what the ticked charts need, pre-filled from the chart on screen or a saved chart, and shows coordinates only when Natal or Vedic is ticked. From then on each message is answered in four steps on the server:
 
 1. **Retrieve**: the linked charts are recalculated from the birth details and turned into short fact cards (placements plus today's transits); a fast model picks the 3–6 that bear on the message.
 2. **Make sense**: private notes on how the draw and those facts fit together.
 3. **Insight**: the reply, in plain words, with at most one explained term.
 4. **Polish**: a fast model edits for clarity, jargon and length.
 
-The reply shows a light *drew on* line in plain words, e.g. "how you make decisions (Human Design)". Only chart data goes in, never text from an earlier reading. Each draw asked with linked charts uses one of the week's `LINKED_QUESTIONS_PER_WEEK` (5) questions; follow-ups on the same draw are free, and the preview is unlimited. Run `supabase/migrations/0002_linked_questions.sql` for the weekly count.
+Changing the linked charts (adding, removing, editing or unlinking) re-answers the latest question with the new set, marked "↻ updated with your charts". The reply shows a light *drew on* line in plain words, e.g. "how you make decisions (Human Design)". Only chart data goes in, never text from an earlier reading. Each draw asked with linked charts uses one of the week's `LINKED_QUESTIONS_PER_WEEK` (5) questions; follow-ups on the same draw are free, and the preview is unlimited. Run `supabase/migrations/0002_linked_questions.sql` for the weekly count.
 
 ## Paid preview
 

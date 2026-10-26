@@ -164,11 +164,11 @@ export default function App() {
     }
   };
 
-  const sendChat = async function(text) {
-    if (detectCrisis(text)) setCrisis(true);
-    const history = [...msgs, {role:"user",text,ts:now()}];
+  // Asks the oracle with `history` (ending on the person's message) and the
+  // given linked charts. `onFail` restores the conversation if it doesn't work.
+  const askWith = async function(history, link, onFail, note) {
     const id = drawId.current;
-    const charts = linkedChartBodies(linked);
+    const charts = linkedChartBodies(link);
     setMsgs(history); setChatLoading(true); setChatError(null);
     let ticker = null;
     if (charts.length) { setLinkStep(0); ticker = setInterval(function(){ setLinkStep(function(s){ return Math.min(s+1, LINK_STEPS.length-1); }); }, 5000); }
@@ -176,16 +176,35 @@ export default function App() {
       const out = await askOracle(draw.seed, interp && interp.synthesis, history, charts);
       if (id !== drawId.current) return;
       if (out.questions) setQuestions(out.questions);
-      setMsgs(function(p){ return [...p, {role:"assistant",text:out.reply,ts:now(),drewOn:out.drewOn||undefined}]; });
+      setMsgs(function(p){ return [...p, {role:"assistant",text:out.reply,ts:now(),drewOn:out.drewOn||undefined,note:note||undefined}]; });
     } catch (err) {
       if (id !== drawId.current) return;
-      // Drop the unanswered message so the conversation stays well-formed.
-      setMsgs(msgs); setInput(text); setChatError(oracleErrorText(err));
+      onFail(); setChatError(oracleErrorText(err));
     } finally {
       if (ticker) clearInterval(ticker);
       if (id === drawId.current) setChatLoading(false);
     }
     setTimeout(function(){ inputRef.current && inputRef.current.focus(); }, 80);
+  };
+
+  const sendChat = function(text) {
+    if (detectCrisis(text)) setCrisis(true);
+    // On failure, drop the unanswered message so the conversation stays well-formed.
+    askWith([...msgs, {role:"user",text,ts:now()}], linked, function(){ setMsgs(msgs); setInput(text); });
+  };
+
+  // Changing which charts are linked (adding, removing, editing or unlinking)
+  // re-answers the latest question with the new set.
+  const changeLinked = function(next) {
+    const before = JSON.stringify(linkedChartBodies(linked)), after = JSON.stringify(linkedChartBodies(next));
+    setLinked(next);
+    if (before === after || chatLoading) return;
+    const last = msgs.map(function(m){ return m.role; }).lastIndexOf("user");
+    if (last < 0) return;
+    const prior = msgs;
+    const n = linkedChartBodies(next).length;
+    askWith(msgs.slice(0, last + 1), next, function(){ setMsgs(prior); },
+      n ? "updated with your " + (n > 1 ? "charts" : "chart") : "updated without your charts");
   };
 
   const submit = function() {
@@ -344,7 +363,7 @@ export default function App() {
 
           {interp && phase==="ready" && (canChat
             ? <>
-                <LinkBar linked={linked} onChange={setLinked} auth={auth} disabled={chatLoading}/>
+                <LinkBar linked={linked} onChange={changeLinked} auth={auth} disabled={chatLoading}/>
                 {questions && linked && linked.systems.length > 0 && <p style={{fontSize:11,color:T.dim,textAlign:"center",margin:"-6px 0 12px"}}>questions with charts this week: {questions.used} of {questions.max}</p>}
                 {msgs.length===0 && !chatLoading && <SuggestedChips reading={reading} onAsk={sendChat} disabled={chatLoading}/>}
               </>
@@ -355,6 +374,7 @@ export default function App() {
             {msgs.map(function(m,i){ const mine = m.role==="user"; return (
               <div key={i} style={{display:"flex",flexDirection:"column",alignItems:mine?"flex-end":"flex-start",marginBottom:12}}>
                 <div style={{maxWidth:"82%",padding:"12px 16px",borderRadius:mine?"18px 18px 4px 18px":"18px 18px 18px 4px",background:mine?GRAD:T.surface,color:mine?"#fff":T.muted,fontSize:14,lineHeight:1.75,whiteSpace:"pre-wrap",border:mine?"none":"1px solid "+T.border,fontFamily:"Georgia,serif"}}>{m.text}</div>
+                {m.note && <div style={{fontSize:10,color:T.dim,marginTop:4,padding:"0 4px",fontWeight:600,letterSpacing:0.3}}>↻ {m.note}</div>}
                 {m.drewOn && m.drewOn.length > 0 && <div style={{maxWidth:"82%",fontSize:11,color:T.purple,marginTop:5,padding:"0 4px",lineHeight:1.5}}>✦ drew on: {m.drewOn.join(" · ")}</div>}
                 <div style={{fontSize:9,color:T.dim,marginTop:3,padding:"0 4px"}}>{m.ts}</div>
               </div>

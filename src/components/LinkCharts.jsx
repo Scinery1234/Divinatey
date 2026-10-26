@@ -34,50 +34,39 @@ function knownPeople(auth) {
   return out;
 }
 
+// A single button under the reading. Choosing charts happens in the side panel;
+// once linked, the button becomes a short summary with edit and unlink.
 export function LinkBar({ linked, onChange, auth, disabled }) {
   const [open, setOpen] = useState(false);
-  const [pending, setPending] = useState(null);       // a system ticked before any person is set
   const systems = (linked && linked.systems) || [];
-  const toggle = id => {
-    if (!linked || !linked.person) { setPending(id); setOpen(true); return; }
-    const next = systems.includes(id) ? systems.filter(s => s !== id) : [...systems, id];
-    if (next.some(s => NEEDS_COORDS.has(s)) && !isFinite(parseFloat(linked.person.lat))) { setPending(id); setOpen(true); return; }
-    onChange({ ...linked, systems: next });
-  };
   const p = linked && linked.person;
+  const on = systems.length > 0 && p;
+  const small = { fontSize: 12, fontWeight: 600, background: "none", border: "none", padding: 0, cursor: disabled ? "default" : "pointer" };
   return (
-    <div style={{ margin: "4px 0 14px", padding: "12px 14px", borderRadius: 14, border: "1px solid " + T.border, background: T.surface }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-        <div style={{ fontSize: 9, letterSpacing: 2, color: T.purple, textTransform: "uppercase", fontWeight: 700 }}>bring in my charts</div>
-        {p && <button className="link-btn" onClick={() => setOpen(true)} style={{ fontSize: 12, color: T.purple, fontWeight: 600 }}>
-          {(p.name || "you") + " · " + p.date} · edit</button>}
-      </div>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-        {CHART_SYSTEMS.map(s => {
-          const on = systems.includes(s.id);
-          return <label key={s.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, padding: "6px 12px", borderRadius: 999, cursor: disabled ? "default" : "pointer",
-            border: "1px solid " + (on ? T.purple + "88" : T.border), background: on ? "#f1ebff" : T.bg, color: on ? T.purple : T.muted }}>
-            <input type="checkbox" checked={on} disabled={disabled} onChange={() => toggle(s.id)} style={{ accentColor: T.purple }} />{s.label}</label>;
-        })}
-      </div>
-      <p style={{ margin: "8px 0 0", fontSize: 11, color: T.dim, lineHeight: 1.6 }}>
-        {systems.length ? "The oracle will draw on these when it's relevant to what you ask." : "Tick a chart and the oracle will draw on it when it's relevant to what you ask."}
+    <div style={{ margin: "4px 0 14px", textAlign: "center" }}>
+      {on ? (
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "center", padding: "9px 16px", borderRadius: 999, border: "1px solid " + T.purple + "55", background: "#f6f1ff" }}>
+          <span style={{ fontSize: 12, color: T.purple, fontWeight: 600 }}>✦ {systems.map(label).join(" · ")}{p.name ? " · " + p.name : ""}</span>
+          <button style={{ ...small, color: T.muted }} disabled={disabled} onClick={() => setOpen(true)}>edit</button>
+          <button style={{ ...small, color: T.dim }} disabled={disabled} onClick={() => onChange({ ...linked, systems: [] })}>unlink</button>
+        </div>
+      ) : (
+        <button disabled={disabled} onClick={() => setOpen(true)}
+          style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.3, padding: "9px 18px", borderRadius: 999, cursor: disabled ? "default" : "pointer", border: "1px solid " + T.purple + "66", background: T.surface, color: T.purple }}>
+          ✦ bring in my charts</button>
+      )}
+      <p style={{ margin: "6px 0 0", fontSize: 11, color: T.dim, lineHeight: 1.6 }}>
+        {on ? "The oracle draws on these when it's relevant to what you ask." : "Let the oracle draw on your birth charts when it's relevant to what you ask."}
       </p>
-      {open && <LinkPanel linked={linked} pending={pending} auth={auth}
-        onClose={() => { setOpen(false); setPending(null); }}
-        onSave={v => { onChange(v); setOpen(false); setPending(null); }} />}
+      {open && <LinkPanel linked={linked} auth={auth} onClose={() => setOpen(false)} onSave={v => { onChange(v); setOpen(false); }} />}
     </div>
   );
 }
 
-function LinkPanel({ linked, pending, auth, onClose, onSave }) {
+function LinkPanel({ linked, auth, onClose, onSave }) {
   const people = knownPeople(auth);
   const start = (linked && linked.person) || people[0] || null;
-  const [systems, setSystems] = useState(() => {
-    const s = new Set((linked && linked.systems) || []);
-    if (pending) s.add(pending);
-    return [...s];
-  });
+  const [systems, setSystems] = useState(() => (linked && linked.systems) || []);
   const [name, setName] = useState(start ? start.name : "");
   const [date, setDate] = useState(start ? start.date : "");
   const [time, setTime] = useState(start ? start.time : "12:00");
