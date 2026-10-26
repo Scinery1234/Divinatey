@@ -6,6 +6,7 @@ import { drawReading, interpret, askOracle, oracleErrorText, getSystems } from "
 import { PageOverlay, CrisisOverlay, CardMini, Divider, FooterLinks, VikLink } from "./components/common.jsx";
 import { ChartScreen, ChartNav, CHART_SYSTEMS } from "./components/ChartScreen.jsx";
 import { AccountScreen } from "./components/AccountScreen.jsx";
+import { ChatTeaser, SuggestedChips } from "./components/ChatTeaser.jsx";
 import { useAuth } from "./auth.js";
 
 const now = () => new Date().toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"});
@@ -75,6 +76,13 @@ export default function App() {
   const [systems, setSystems] = useState(null);
   const auth = useAuth();
   const [prefill, setPrefill] = useState(null);
+  const canChat = !!(auth.me && auth.me.plan === "paid");
+  const teaserRef = useRef(null);
+  const [pulse, setPulse] = useState(false);
+  const showTeaser = useCallback(function(){
+    if (teaserRef.current) teaserRef.current.scrollIntoView({behavior:"smooth", block:"center"});
+    setPulse(false); setTimeout(function(){ setPulse(true); }, 30);
+  }, []);
   const openSaved = useCallback(function(c){ setPrefill(c); goChart(c.system); }, [goChart]);
   const accountBtn = auth.enabled && <button onClick={function(){goChart("account");}} style={{fontSize:12,color:T.muted,background:"none",border:"1px solid "+T.border,borderRadius:999,padding:"5px 14px",cursor:"pointer",fontWeight:600}}>{auth.session ? "account" : "sign in"}</button>;
   useEffect(function(){ if (chart && chart !== "account" && !systems) getSystems().then(setSystems).catch(function(){}); }, [chart, systems]);
@@ -293,6 +301,11 @@ export default function App() {
             <p style={{fontSize:15,color:T.purple,textAlign:"center",lineHeight:1.8,marginBottom:20,fontWeight:600,fontFamily:"Georgia,serif",padding:"0 8px"}}>{interp.invitation}</p>
           )}
 
+          {interp && phase==="ready" && (canChat
+            ? (msgs.length===0 && !chatLoading && <SuggestedChips reading={reading} onAsk={sendChat} disabled={chatLoading}/>)
+            : <ChatTeaser reading={reading} auth={auth} pulse={pulse} innerRef={teaserRef}
+                onSignIn={function(){goChart("account");}} onAccount={function(){goChart("account");}}/>)}
+
           <div aria-live="polite">
             {msgs.map(function(m,i){ const mine = m.role==="user"; return (
               <div key={i} style={{display:"flex",flexDirection:"column",alignItems:mine?"flex-end":"flex-start",marginBottom:12}}>
@@ -312,7 +325,17 @@ export default function App() {
         </div>
       </main>
 
-      {phase==="ready" && interp && (
+      {phase==="ready" && interp && !canChat && (
+        <div style={{borderTop:"1px solid "+T.border,background:T.surface,flexShrink:0}}>
+          <div style={{maxWidth:640,margin:"0 auto",padding:"10px 14px"}}>
+            <button onClick={showTeaser} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,border:"1px solid "+T.border,borderRadius:12,padding:"11px 14px",background:T.bg,cursor:"pointer",color:T.muted,fontSize:15,fontFamily:"Georgia,serif"}}>
+              <span>ask the oracle about this reading…</span>
+              <span style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#fff",background:GRAD,borderRadius:999,padding:"4px 10px",fontFamily:"system-ui,sans-serif"}}>🔒 paid</span>
+            </button>
+          </div>
+        </div>
+      )}
+      {phase==="ready" && interp && canChat && (
         <div style={{borderTop:"1px solid "+T.border,background:T.surface,flexShrink:0}}>
           <form onSubmit={function(e){e.preventDefault();submit();}} style={{maxWidth:640,margin:"0 auto",padding:"12px 14px",display:"flex",gap:10,alignItems:"flex-end"}}>
             <textarea ref={inputRef} value={input} aria-label="Share what's on your mind" maxLength={2000} onChange={function(e){setInput(e.target.value);e.target.style.height="auto";e.target.style.height=Math.min(e.target.scrollHeight,120)+"px";}} onKeyDown={function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();submit();}}} placeholder="what's on your mind?" disabled={chatLoading} rows={1} style={{flex:1,resize:"none",border:"1px solid "+T.border,borderRadius:12,padding:"10px 14px",fontSize:16,fontFamily:"Georgia,serif",lineHeight:1.5,outline:"none",overflow:"hidden",color:T.text,background:T.bg}}/>

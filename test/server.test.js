@@ -38,7 +38,7 @@ before(async () => {
   const port = 18000 + Math.floor(Math.random() * 1000);
   base = "http://localhost:" + port;
   server = spawn(process.execPath, ["server/index.js"], {
-    env: { ...process.env, PORT: String(port), ANTHROPIC_API_KEY: "test", ANTHROPIC_BASE_URL: "http://localhost:" + mock.address().port },
+    env: { ...process.env, PORT: String(port), ANTHROPIC_API_KEY: "test", ANTHROPIC_BASE_URL: "http://localhost:" + mock.address().port, AUTH_TEST_TOKENS: "1", SUPABASE_URL: "", SUPABASE_SERVICE_ROLE_KEY: "", SUPABASE_SERVICE_KEY: "" },
     stdio: ["ignore", "pipe", "inherit"],
   });
   await new Promise(r => server.stdout.on("data", r));
@@ -46,7 +46,8 @@ before(async () => {
 
 after(() => { server.kill(); mock.close(); });
 
-const post = (path, body) => fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+const PAID = "test:u-paid:paid@example.com:paid";
+const post = (path, body, token = path === "/api/chat" ? PAID : null) => fetch(base + path, { method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: "Bearer " + token } : {}) }, body: JSON.stringify(body) })
   .then(async r => ({ status: r.status, body: await r.json() }));
 
 test("draw + interpret", async () => {
@@ -72,6 +73,17 @@ test("draw + interpret", async () => {
     assert.match(r.headers["anthropic-beta"], /server-side-fallback-2026-07-01/);
     assert.equal(r.body.output_config.format.type, "json_schema");
   }
+});
+
+test("chat is for paid accounts only", async () => {
+  const { body: { seed } } = await post("/api/draw", {});
+  const history = [{ role: "user", text: "hi" }];
+  const anon = await post("/api/chat", { seed, history }, "");
+  assert.equal(anon.status, 401);
+  assert.equal(anon.body.error, "signed_out");
+  const free = await post("/api/chat", { seed, history }, "test:u-free:free@example.com:free");
+  assert.equal(free.status, 403);
+  assert.equal(free.body.error, "paid_required");
 });
 
 test("chat validates history and handles refusals", async () => {

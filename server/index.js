@@ -74,7 +74,9 @@ app.post("/api/interpret", aiLimit, async (req, res) => {
   }
 });
 
-app.post("/api/chat", aiLimit, async (req, res) => {
+// Chat is part of the paid plan. (The middleware is defined with the account
+// routes below; the arrow wrappers look it up when a request arrives.)
+app.post("/api/chat", aiLimit, (q, r, n) => identify(q, r, n), (q, r, n) => requireUser(q, r, n), (q, r, n) => requirePaid(q, r, n), async (req, res) => {
   const reading = readingFrom(req, res);
   if (!reading) return;
   const { synthesis, history } = req.body;
