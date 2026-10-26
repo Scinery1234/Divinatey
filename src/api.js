@@ -46,6 +46,17 @@ export const askChart = (chart, history) =>
   call("POST", "/api/chart-chat", { chart, history: history.map(m => ({ role: m.role, text: m.text })) }, true);
 export const explainChart = (chart, tab, item) => call("POST", "/api/chart-explain", { chart, tab, item }, true);
 export const chartReading = (chart, section, technical) => call("POST", "/api/chart-reading", { chart, section, technical }, true);
+// Both return a Stripe page to send the person to.
+export const startCheckout = (kind, returnPath) => call("POST", "/api/billing/checkout", { kind, returnPath }, true);
+export const openPortal = returnPath => call("POST", "/api/billing/portal", { returnPath }, true);
+export function billingErrorText(err) {
+  if (err instanceof ApiError) {
+    if (err.code === "already_subscribed") return "You're already on the paid plan. Use Manage billing to switch between monthly and yearly.";
+    if (err.code === "billing_off") return "Payments aren't switched on yet.";
+    if (err.code === "signed_out") return "Sign in first, then choose a plan.";
+  }
+  return "Couldn't open the payment page. Try again in a moment.";
+}
 export const getConfig = () => get("/api/config");
 export const getMe = () => call("GET", "/api/me", undefined, true);
 export const saveChartSlot = (slot, body) => call("PUT", "/api/charts/" + slot, body, true);
@@ -74,7 +85,7 @@ export function oracleErrorText(err) {
     if (err.code === "upstream") return "The oracle's AI service had a problem just now. Try again in a moment. (Error 502: upstream)";
     if (err.code === "internal") return "Something went wrong on our side. Try again in a moment. (Error 500)";
     if (err.code === "paid_required" || err.code === "signed_out") return "Chat with the oracle is part of the paid plan.";
-    if (err.code === "question_limit") return "You've asked this week's 5 questions with your charts linked. Untick your charts to keep chatting, or come back next week. (Extra questions open with payments.)";
+    if (err.code === "question_limit") return "You've asked this week's 5 questions with your charts linked. Unlink your charts to keep chatting, come back next week, or ask anyway for $5.";
     if (err.status === 429) return "The oracle needs a moment to rest. Try again in a few minutes.";
     if (err.code === "refused") return "The oracle can't speak to that one. Try asking another way.";
     if (err.code === "busy") return "Many seekers are asking right now. Try again shortly.";

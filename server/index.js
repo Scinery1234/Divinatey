@@ -8,6 +8,7 @@ import { interpretReading, chat, chartChat, writeText, linkedChat, OracleRefusal
 import { rateLimit } from "./rate-limit.js";
 import { freeChartLimit } from "./free-limit.js";
 import { createStore, SLOTS } from "./store.js";
+import { createBilling, BillingError } from "./billing.js";
 import { searchPlaces, warmPlaces, chartChatContext, chartFactCards, guidePrompt, readingPrompt, parseChartInput, renderChart, chartKey, systemMeta, ChartInputError } from "./astro.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -20,6 +21,21 @@ const MAX_TEXT = 2000;
 const app = express();
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "1");
+// Stripe webhook: needs the raw body to check Stripe's signature, so it comes
+// before the JSON parser. (billing is created with the account routes below.)
+app.post("/api/stripe/webhook", express.raw({ type: "application/json", limit: "1mb" }), async (req, res) => {
+  if (!billing) return res.status(404).json({ error: "billing off" });
+  try {
+    const result = await billing.webhook(req.body, req.get("stripe-signature"));
+    console.log("Stripe webhook:", result);
+    res.json({ received: true, result });
+  } catch (err) {
+    if (err instanceof BillingError) return res.status(err.status).json({ error: err.code });
+    console.error("Stripe webhook failed:", err);
+    res.status(500).json({ error: "internal" });      // Stripe retries
+  }
+});
+
 app.use(express.json({ limit: "64kb" }));
 app.use((req, res, next) => {
   res.set({
@@ -150,17 +166,24 @@ app.post("/api/chat", aiLimit, chatAccess, async (req, res) => {
   // (follow-ups on the same draw are free). Unlimited in the paid preview.
   const counted = !req.preview && req.user;
   const week = weekStart(), seed = String(req.body.seed);
+  let useExtra = false;
   try {
     if (counted) {
       const asked = await store.linkedSeeds(req.user.id, week);
-      if (!asked.has(seed) && asked.size >= LINKED_PER_WEEK)
-        return res.status(429).json({ error: "question_limit", used: asked.size, max: LINKED_PER_WEEK });
+      if (!asked.has(seed) && asked.size >= LINKED_PER_WEEK) {
+        // Over the weekly allowance: use a purchased extra question if there is one.
+        const extra = (await store.getProfile(req.user.id, req.user)).extra_questions || 0;
+        if (extra < 1) return res.status(429).json({ error: "question_limit", used: asked.size, max: LINKED_PER_WEEK, canBuy: !!billing });
+        useExtra = true;
+      }
     }
     const out = await linkedChat(reading, synth, trimmed, charts, interp);
     let questions = null;
     if (counted) {
+      if (useExtra) await store.useExtraQuestion(req.user.id);     // charged only once the answer is ready
       await store.recordLinked(req.user.id, week, seed);
-      questions = { used: (await store.linkedSeeds(req.user.id, week)).size, max: LINKED_PER_WEEK };
+      const p = await store.getProfile(req.user.id, req.user);
+      questions = { used: (await store.linkedSeeds(req.user.id, week)).size, max: LINKED_PER_WEEK, extra: p.extra_questions || 0 };
     }
     res.json({ ...out, questions });
   } catch (err) {
@@ -178,6 +201,7 @@ function weekStart(d = new Date()) {
 
 // ── Accounts ─────────────────────────────────────────────────────────────────
 const store = createStore();
+const billing = createBilling({ store });
 if (store.accounts && !process.env.AUTH_TEST_TOKENS && !process.env.FREE_LIMIT_SECRET)
   console.warn("FREE_LIMIT_SECRET is not set: free chart counts reset on every restart.");
 const accountLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 120 });
@@ -212,12 +236,22 @@ const slotParam = (req, res) => {
 // The anon key is public by design: the browser needs it to sign in.
 app.get("/api/config", (req, res) => {
   const url = process.env.SUPABASE_URL, anonKey = process.env.SUPABASE_ANON_KEY;
-  res.json({ auth: url && anonKey ? { url, anonKey } : null, preview: PREVIEW_ON });
+  res.json({ auth: url && anonKey ? { url, anonKey } : null, preview: PREVIEW_ON, billing: !!billing });
 });
 
 app.get("/api/me", accountLimit, identify, requireUser, async (req, res) => {
   try {
-    res.json({ email: req.user.email, plan: req.user.plan, slots: SLOTS.length, charts: await store.listCharts(req.user.id) });
+    const p = await store.getProfile(req.user.id, req.user);
+    const asked = await store.linkedSeeds(req.user.id, weekStart());
+    res.json({
+      email: req.user.email, plan: req.user.plan, slots: SLOTS.length, charts: await store.listCharts(req.user.id),
+      billing: {
+        enabled: !!billing, subscribed: !!p.subscription_id && p.plan === "paid", status: p.subscription_status || null,
+        interval: p.billing_interval || null, renewsAt: p.plan_renews_at || null, cancelAtPeriodEnd: !!p.cancel_at_period_end,
+        hasCustomer: !!p.stripe_customer_id, extraQuestions: p.extra_questions || 0,
+      },
+      questions: { used: asked.size, max: LINKED_PER_WEEK },
+    });
   } catch (err) {
     sendError(res, err);
   }
@@ -348,6 +382,28 @@ app.post("/api/chart-explain", explainLimit, paidAccess, (req, res) =>
 
 app.post("/api/chart-reading", explainLimit, paidAccess, (req, res) =>
   respondWithText(res, () => readingPrompt(parseChartInput(req.body.chart), req.body.section, !!req.body.technical)));
+
+// ── Billing ──────────────────────────────────────────────────────────────────
+// Return pages Stripe may send people back to (relative to the site).
+const RETURN_PATHS = new Set(["/account", "/preview/account", "/", "/preview"]);
+function returnUrl(req) {
+  const path = RETURN_PATHS.has(req.body && req.body.returnPath) ? req.body.returnPath : "/account";
+  const base = (process.env.PUBLIC_URL || req.protocol + "://" + req.get("host")).replace(/\/+$/, "");
+  return base + path;
+}
+const billingRoute = fn => async (req, res) => {
+  if (!billing) return res.status(503).json({ error: "billing_off" });
+  try { res.json({ url: await fn(req) }); }
+  catch (err) {
+    if (err instanceof BillingError) return res.status(err.status).json({ error: err.code });
+    console.error("Billing error:", err.message || err);
+    res.status(502).json({ error: "billing_upstream" });
+  }
+};
+app.post("/api/billing/checkout", accountLimit, identify, requireUser,
+  billingRoute(req => billing.checkout(req.user, String(req.body.kind || ""), returnUrl(req))));
+app.post("/api/billing/portal", accountLimit, identify, requireUser,
+  billingRoute(req => billing.portal(req.user, returnUrl(req))));
 
 app.use("/api", (req, res) => res.status(404).json({ error: "not found" }));
 

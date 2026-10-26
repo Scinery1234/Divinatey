@@ -3,6 +3,7 @@ import { T, GRAD } from "../theme.js";
 import { accountRedirect, authErrorText } from "../auth.js";
 import { deleteChartSlot } from "../api.js";
 import { CHART_SYSTEMS } from "./ChartScreen.jsx";
+import { BillingPanel } from "./Billing.jsx";
 
 const primaryBtn = { background: GRAD, border: "none", borderRadius: 999, color: "#fff", fontWeight: 700, cursor: "pointer", letterSpacing: 0.5, padding: "12px 28px", fontSize: 15 };
 const ghostBtn = { fontSize: 13, color: T.muted, background: "none", border: "1px solid " + T.border, borderRadius: 999, padding: "8px 16px", cursor: "pointer", fontWeight: 600 };
@@ -171,12 +172,7 @@ export function AccountScreen({ auth, onOpenChart }) {
         <p style={{ fontSize: 13, color: T.muted, margin: 0 }}>{auth.session.user.email}</p>
       </div>
       {!me ? <p style={{ color: T.dim, margin: 0 }} role="status">Loading your plan…</p> : <>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 11, letterSpacing: 2, textTransform: "uppercase", fontWeight: 700, padding: "5px 12px", borderRadius: 999,
-            color: me.plan === "paid" ? "#fff" : T.muted, background: me.plan === "paid" ? GRAD : T.bg, border: me.plan === "paid" ? "none" : "1px solid " + T.border }}>
-            {me.plan === "paid" ? "Paid plan" : "Free plan"}</span>
-          {me.plan !== "paid" && <span style={{ fontSize: 13, color: T.muted }}>Upgrading opens soon: $20/month or $180/year.</span>}
-        </div>
+        <BillingPanel me={me} refreshMe={auth.refreshMe} />
         <SavedCharts me={me} onOpen={onOpenChart} onChanged={auth.refreshMe} />
       </>}
       <SetPassword client={auth.client} title="Password" intro="Set or change your password. Accounts made with a sign-in link can add one here." />

@@ -23,14 +23,16 @@ const call = (method, path, token, body) => fetch(base + path, {
 const natal = { system: "natal", name: "Me", date: "1990-07-15", time: "14:30", tz: "Australia/Sydney", lat: -33.87, lon: 151.21, place: "Sydney, New South Wales, Australia" };
 
 test("config reports accounts off without Supabase keys", async () => {
-  assert.deepEqual((await call("GET", "/api/config")).body, { auth: null, preview: true });
+  assert.deepEqual((await call("GET", "/api/config")).body, { auth: null, preview: true, billing: false });
 });
 
 test("me needs a valid session", async () => {
   assert.equal((await call("GET", "/api/me")).status, 401);
   assert.equal((await call("GET", "/api/me", "not-a-token")).status, 401);
   const me = await call("GET", "/api/me", FREE);
-  assert.deepEqual(me.body, { email: "free@example.com", plan: "free", slots: 2, charts: [] });
+  assert.deepEqual(me.body, { email: "free@example.com", plan: "free", slots: 2, charts: [],
+    billing: { enabled: false, subscribed: false, status: null, interval: null, renewsAt: null, cancelAtPeriodEnd: false, hasCustomer: false, extraQuestions: 0 },
+    questions: { used: 0, max: 5 } });
 });
 
 test("free accounts can't save charts", async () => {

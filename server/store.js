@@ -8,6 +8,9 @@
 import { createClient } from "@supabase/supabase-js";
 
 const SLOTS = [1, 2];
+const PROFILE_FIELDS = "plan, plan_renews_at, stripe_customer_id, subscription_id, subscription_status, billing_interval, cancel_at_period_end, extra_questions";
+const EMPTY_PROFILE = { plan: "free", plan_renews_at: null, stripe_customer_id: null, subscription_id: null, subscription_status: null,
+  billing_interval: null, cancel_at_period_end: false, extra_questions: 0 };
 
 function supabaseStore(url, serviceKey) {
   const sb = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -22,11 +25,33 @@ function supabaseStore(url, serviceKey) {
       return { id: data.user.id, email: data.user.email || "" };
     },
     async getProfile(id) {
-      const rows = must(await sb.from("profiles").select("plan, plan_renews_at").eq("id", id).limit(1));
+      const rows = must(await sb.from("profiles").select(PROFILE_FIELDS).eq("id", id).limit(1));
       if (rows.length) return rows[0];
       // The sign-up trigger normally creates this; fall back in case it wasn't installed.
       must(await sb.from("profiles").upsert({ id }, { onConflict: "id", ignoreDuplicates: true }));
-      return { plan: "free", plan_renews_at: null };
+      return { ...EMPTY_PROFILE };
+    },
+    async setCustomer(userId, customerId) {
+      must(await sb.from("profiles").update({ stripe_customer_id: customerId }).eq("id", userId));
+    },
+    async userByCustomer(customerId) {
+      const rows = must(await sb.from("profiles").select("id").eq("stripe_customer_id", customerId).limit(1));
+      return rows.length ? rows[0].id : null;
+    },
+    async applySubscription(userId, sub) {
+      must(await sb.from("profiles").update(sub).eq("id", userId));
+    },
+    async addExtraQuestions(userId, n) {
+      must(await sb.rpc("add_extra_questions", { uid: userId, n }));
+    },
+    async useExtraQuestion(userId) {
+      return !!must(await sb.rpc("use_extra_question", { uid: userId }));
+    },
+    async eventSeen(id) {
+      return must(await sb.from("stripe_events").select("id").eq("id", id).limit(1)).length > 0;
+    },
+    async markEvent(id, type) {
+      must(await sb.from("stripe_events").upsert({ id, type }, { ignoreDuplicates: true }));
     },
     async listCharts(userId) {
       return must(await sb.from("charts").select("slot, system, name, birth, updated_at").eq("user_id", userId).order("slot"));
@@ -60,6 +85,9 @@ function memoryStore({ testTokens }) {
   const charts = new Map();       // userId → Map(slot → chart)
   const usage = new Map();        // day|ipHash → Set(chartHash)
   const linked = new Map();       // userId|weekStart → Set(seed)
+  const profiles = new Map();     // userId → profile fields set by billing
+  const events = new Set();
+  const prof = id => { if (!profiles.has(id)) profiles.set(id, {}); return profiles.get(id); };
   return {
     accounts: !!testTokens,
     async getUser(token) {
@@ -67,7 +95,24 @@ function memoryStore({ testTokens }) {
       const m = /^test:([\w-]+):([^:]*):(free|paid)$/.exec(token);
       return m ? { id: m[1], email: m[2], plan: m[3] } : null;
     },
-    async getProfile(id, user) { return { plan: (user && user.plan) || "free", plan_renews_at: null }; },
+    async getProfile(id, user) {
+      const p = profiles.get(id) || {};
+      return { ...EMPTY_PROFILE, plan: (user && user.plan) || "free", ...p };
+    },
+    async setCustomer(userId, customerId) { prof(userId).stripe_customer_id = customerId; },
+    async userByCustomer(customerId) {
+      for (const [id, p] of profiles) if (p.stripe_customer_id === customerId) return id;
+      return null;
+    },
+    async applySubscription(userId, sub) { Object.assign(prof(userId), sub); },
+    async addExtraQuestions(userId, n) { const p = prof(userId); p.extra_questions = (p.extra_questions || 0) + n; },
+    async useExtraQuestion(userId) {
+      const p = prof(userId);
+      if (!(p.extra_questions > 0)) return false;
+      p.extra_questions--; return true;
+    },
+    async eventSeen(id) { return events.has(id); },
+    async markEvent(id) { events.add(id); },
     async listCharts(userId) {
       const m = charts.get(userId) || new Map();
       return [...m.entries()].sort((a, b) => a[0] - b[0]).map(([slot, c]) => ({ slot, ...c }));

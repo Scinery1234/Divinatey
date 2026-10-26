@@ -61,6 +61,10 @@ If the app runs behind a reverse proxy or load balancer, set `TRUST_PROXY=1` so 
 | `ANTHROPIC_QUICK_MODEL` | `claude-haiku-5-5` | Fast model for picking chart facts and polishing linked replies |
 | `LINKED_QUESTIONS_PER_WEEK` | `5` | Draws a paid account can ask with linked charts each week |
 | `LINKED_TIME_BUDGET_MS` | `25000` | After this long, a linked reply skips the polish step so it finishes before host time limits |
+| `STRIPE_SECRET_KEY` | (unset) | Turns payments on |
+| `STRIPE_WEBHOOK_SECRET` | (unset) | Signing secret of the webhook endpoint |
+| `PUBLIC_URL` | (request host) | The site's public address, for Stripe's return links |
+| `STRIPE_PRICE_MONTHLY` / `_YEARLY` / `_EXTRA` | (lookup keys) | Use specific price IDs instead of the lookup keys |
 
 If a request is declined on policy grounds, it's automatically retried on Anthropic's recommended fallback model (`fallbacks: "default"`).
 
@@ -82,6 +86,17 @@ Routes: `GET /api/me`, `PUT /api/charts/:slot` (paid, slots 1–2), `DELETE /api
 Paid accounts (and the preview) get, on every chart: a **chart guide** side panel where each placement, centre, house or graha has *Explain →* and each section has an overview; a four-part **reading** of the chart against today's sky; and **chat** about the chart. Routes: `POST /api/chart-explain` `{chart, tab, item | "overview"}`, `POST /api/chart-reading` `{chart, section, technical}`, `POST /api/chart-chat` `{chart, history}`. The server recalculates the chart from the birth details and builds each prompt from that one item's or section's data (the same prompts as the standalone pages), so no reading sees another. Identical prompts within an hour reuse the answer.
 
 The browser keeps the latest reading, the chart on screen, chats and explanations in session storage for the tab, so leaving a page or refreshing doesn't lose them.
+
+## Payments (Stripe)
+
+The paid plan is $20/month or $180/year; extra linked questions are $5 each. Stripe handles checkout, card details, renewals and cancellations; the webhook is the only thing that turns the paid plan on or off.
+
+1. Run `supabase/migrations/0003_billing.sql`.
+2. With a **test** key first: `STRIPE_SECRET_KEY=sk_test_... PUBLIC_URL=https://your-site npm run stripe:setup`. It creates the products and prices (lookup keys `divinatey_monthly`, `divinatey_yearly`, `divinatey_extra_question`), a billing portal (switch monthly/yearly, update card, cancel at period end, invoices) and the webhook endpoint, and prints `STRIPE_WEBHOOK_SECRET`. It's safe to run again.
+3. Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` and `PUBLIC_URL` on the server. Try a test card (4242 4242 4242 4242) end to end.
+4. To launch: run the setup again with the live key, set the live key and live webhook secret, and set `PAID_PREVIEW=0`.
+
+Routes: `POST /api/billing/checkout` `{kind: monthly | yearly | extra, returnPath}`, `POST /api/billing/portal`, `POST /api/stripe/webhook` (signature-checked, each event applied once). The plan stays on while Stripe retries a failed renewal (`past_due`) and turns off when the subscription ends. Over the weekly 5 linked questions, a purchased extra question is used, and charged only once the answer is ready.
 
 ## Linking charts to the divination chat (paid)
 

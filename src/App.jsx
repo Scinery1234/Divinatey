@@ -8,6 +8,8 @@ import { ChartScreen, ChartNav, CHART_SYSTEMS } from "./components/ChartScreen.j
 import { AccountScreen } from "./components/AccountScreen.jsx";
 import { ChatTeaser, SuggestedChips } from "./components/ChatTeaser.jsx";
 import { LinkBar, linkedChartBodies } from "./components/LinkCharts.jsx";
+import { goToCheckout } from "./components/Billing.jsx";
+import { Home } from "./components/Home.jsx";
 import { useAuth } from "./auth.js";
 import { PREVIEW, routePath, href } from "./preview.js";
 import { loadSession, saveSession } from "./session.js";
@@ -87,12 +89,16 @@ export default function App() {
   const [input, setInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState(null);
+  const [chatErrorCode, setChatErrorCode] = useState(null);
+  const [buying, setBuying] = useState(false);
   const [crisis, setCrisis] = useState(false);
   const [page, openPage, closePageRaw] = usePage();
   const [chart, goChart] = useChartRoute();
   const [systems, setSystems] = useState(null);
   const auth = useAuth();
   const [prefill, setPrefill] = useState(null);
+  const [billingOn, setBillingOn] = useState(false);
+  useEffect(function(){ getConfig().then(function(c){ setBillingOn(!!c.billing); }).catch(function(){}); }, []);
   const canChat = PREVIEW || !!(auth.me && auth.me.plan === "paid");
   const teaserRef = useRef(null);
   const [pulse, setPulse] = useState(false);
@@ -109,6 +115,14 @@ export default function App() {
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
+  // Back from buying an extra question: the reading is restored from the tab; say so.
+  useEffect(function(){
+    const q = new URLSearchParams(window.location.search).get("checkout");
+    if (!q || chart) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    if (q === "extra") { setChatError("Thanks: your extra question is being added. Ask again in a moment."); setTimeout(function(){ auth.refreshMe(); }, 3000); }
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+
   // Keep the last reading (and its chat) for this tab, so leaving and coming back,
   // or refreshing, shows it again.
   const restored = useRef(false);
@@ -117,13 +131,17 @@ export default function App() {
   const [questions, setQuestions] = useState(null);     // {used, max} this week, for paid accounts
   useEffect(function(){
     const saved = loadSession().reading;
-    if (saved && saved.draw) { setDraw(saved.draw); setInterp(saved.interp || null); setMsgs(saved.msgs || []); setPhase("ready"); }
+    if (saved && saved.draw) {
+      setDraw(saved.draw); setInterp(saved.interp || null); setMsgs(saved.msgs || []);
+      if (loadSession().view !== "home") setPhase("ready");      // back where they were
+    }
     if (saved && saved.linked) setLinked(saved.linked);
     restored.current = true;
   }, []);
   useEffect(function(){
     if (restored.current && phase === "ready" && draw) saveSession({ reading: { draw, interp, msgs, linked } });
   }, [phase, draw, interp, msgs, linked]);
+  useEffect(function(){ if (restored.current && (phase === "splash" || phase === "ready")) saveSession({ view: phase === "splash" ? "home" : "reading" }); }, [phase]);
 
   useEffect(function(){ bottomRef.current && bottomRef.current.scrollIntoView({behavior:"smooth"}); }, [msgs, chatLoading, interp]);
 
@@ -169,7 +187,7 @@ export default function App() {
   const askWith = async function(history, link, onFail, note) {
     const id = drawId.current;
     const charts = linkedChartBodies(link);
-    setMsgs(history); setChatLoading(true); setChatError(null);
+    setMsgs(history); setChatLoading(true); setChatError(null); setChatErrorCode(null);
     let ticker = null;
     if (charts.length) { setLinkStep(0); ticker = setInterval(function(){ setLinkStep(function(s){ return Math.min(s+1, LINK_STEPS.length-1); }); }, 5000); }
     try {
@@ -179,7 +197,7 @@ export default function App() {
       setMsgs(function(p){ return [...p, {role:"assistant",text:out.reply,ts:now(),drewOn:out.drewOn||undefined,note:note||undefined}]; });
     } catch (err) {
       if (id !== drawId.current) return;
-      onFail(); setChatError(oracleErrorText(err));
+      onFail(); setChatError(oracleErrorText(err)); setChatErrorCode(err && err.code);
     } finally {
       if (ticker) clearInterval(ticker);
       if (id === drawId.current) setChatLoading(false);
@@ -237,25 +255,23 @@ export default function App() {
     </div>
   );
 
-  // ── SPLASH ──────────────────────────────────────────────────────────────────
+  // ── HOME ────────────────────────────────────────────────────────────────────
   if (phase==="splash") return (
     <div className="app-shell">
       {PREVIEW && <PreviewBanner/>}
-      {auth.enabled && <div style={{position:"absolute",top:"max(12px, env(safe-area-inset-top))",right:16}}>{accountBtn}</div>}
-      <main style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 24px",textAlign:"center"}}>
-        <h1 style={{fontSize:58,fontWeight:400,color:T.text,margin:"0 0 6px",lineHeight:1.1,letterSpacing:2,fontFamily:SCRIPT}}>Divinatey</h1>
-        <p style={{fontSize:14,color:T.muted,margin:"0 0 8px"}}>what does the universe know?</p>
-        <p style={{fontSize:13,color:T.dim,lineHeight:2.2,maxWidth:280,margin:"0 0 48px"}}>I Ching + Tarot drawn from this exact moment in time — independently, blind to your question</p>
-        <p style={{fontSize:13,color:T.muted,margin:"0 0 20px",fontStyle:"italic",fontFamily:"Georgia,serif"}}>Think of a question for the oracle — or write it down — then draw.</p>
-        <button onClick={startDraw} style={{...primaryBtn,padding:"16px 44px",fontSize:16}}>draw my reading ✦</button>
-        <p style={{marginTop:20,fontSize:10,color:T.dim,letterSpacing:2,textTransform:"uppercase"}}>I Ching · Tarot</p>
-        <p style={{marginTop:28,fontSize:13,color:T.muted,margin:"28px 0 10px"}}>or open your chart</p>
-        <ChartNav hideDraw onNav={goChart}/>
-        <p style={{marginTop:16,fontSize:12,color:T.dim,lineHeight:1.8}}>
-          Prefer a human? Get coaching, psychotherapy and intuitive guidance with <VikLink/>.
-        </p>
+      <header style={{padding:"10px max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px))",borderBottom:"1px solid "+T.border,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexShrink:0,background:T.surface,flexWrap:"wrap"}}>
+        <span style={{fontSize:22,color:T.text,letterSpacing:1,fontFamily:SCRIPT}}>Divinatey</span>
+        <nav aria-label="Main" style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <button className="link-btn" onClick={function(){goChart("natal");}} style={{fontSize:13,color:T.muted,fontWeight:600}}>charts</button>
+          <button className="link-btn" onClick={function(){ const el = document.getElementById("pricing"); if (el) el.scrollIntoView({behavior:"smooth"}); }} style={{fontSize:13,color:T.muted,fontWeight:600}}>pricing</button>
+          {accountBtn}
+          <button onClick={function(){setCrisis(true);}} aria-label="Crisis support" style={{fontSize:11,color:"#f87171",background:"rgba(248,113,113,0.1)",border:"1px solid rgba(248,113,113,0.3)",borderRadius:999,padding:"4px 10px",cursor:"pointer"}}>🆘</button>
+        </nav>
+      </header>
+      <main style={{flex:1,overflowY:"auto"}}>
+        <Home onDraw={startDraw} onContinue={draw && interp ? function(){ setPhase("ready"); } : null} onChart={goChart} onAccount={function(){goChart("account");}} auth={auth} billingOn={billingOn}
+          onPage={openPage} onCrisis={function(){setCrisis(true);}}/>
       </main>
-      <FooterLinks onPage={openPage} onCrisis={function(){setCrisis(true);}}/>
       {overlays}
     </div>
   );
@@ -269,7 +285,7 @@ export default function App() {
       {PREVIEW && <PreviewBanner/>}
       <header style={{padding:"12px 18px",borderBottom:"1px solid "+T.border,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,background:T.surface}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <span style={{fontSize:22,fontWeight:400,color:T.text,letterSpacing:1,fontFamily:SCRIPT}}>Divinatey</span>
+          <button className="link-btn" onClick={function(){ setPhase("splash"); }} title="Home" style={{fontSize:22,fontWeight:400,color:T.text,letterSpacing:1,fontFamily:SCRIPT}}>Divinatey</button>
           {draw && <div style={{fontSize:9,color:T.dim,fontWeight:600,letterSpacing:1,textTransform:"uppercase",paddingTop:1}} title={draw.source==="ANU"?"Seeded with quantum noise from ANU":"Seeded with hardware entropy"}>
             {draw.source==="ANU"?"⚛ quantum · ":""}#{String(draw.seed).slice(-6)}
           </div>}
@@ -381,6 +397,12 @@ export default function App() {
             ); })}
             {chatLoading && <div style={{display:"flex",marginBottom:12}}><div className="pulse" style={{padding:"12px 16px",borderRadius:"18px 18px 18px 4px",background:T.surface,border:"1px solid "+T.border,color:T.dim,fontSize:20}} aria-label="the oracle is thinking">{linkedChartBodies(linked).length ? <span style={{fontSize:12,fontWeight:600,letterSpacing:0.5,color:T.purple}}>{LINK_STEPS[linkStep]}</span> : "···"}</div></div>}
             {chatError && <p style={{fontSize:13,color:T.pink,textAlign:"center",margin:"0 0 12px"}}>{chatError}</p>}
+            {chatErrorCode === "question_limit" && !PREVIEW && (
+              <div style={{textAlign:"center",margin:"-4px 0 14px"}}>
+                <button disabled={buying} onClick={async function(){ setBuying(true); const e = await goToCheckout("extra", ""); if (e) { setChatError(e); setBuying(false); } }}
+                  style={{...primaryBtn,padding:"10px 22px",fontSize:13}}>{buying ? "opening…" : "ask anyway · $5"}</button>
+              </div>
+            )}
           </div>
 
           <div style={{marginTop:8,paddingTop:4,borderTop:"1px solid "+T.border}}>

@@ -182,7 +182,7 @@ test("divination chat with linked charts: four steps, plain reply, drew-on line,
   assert.equal(r.status, 200);
   assert.equal(r.body.reply, "Polished reply. What do you notice?");
   assert.deepEqual(r.body.drewOn, ["how you make decisions (Human Design)"], "only facts that were offered, in plain words");
-  assert.deepEqual(r.body.questions, { used: 1, max: 5 });
+  assert.deepEqual(r.body.questions, { used: 1, max: 5, extra: 0 });
   assert.equal(requests.length, 4, "retrieve, make sense, insight, polish");
   const [pick, notes, draft, polish] = requests.map(q => q.body);
   assert.match(pick.messages[0].content, /human-design:type:0 \| Human Design \| Type · Projector/);
@@ -195,7 +195,7 @@ test("divination chat with linked charts: four steps, plain reply, drew-on line,
   assert.equal(pick.output_config.effort, undefined, "no effort setting on the fast model");
 
   const followUp = await post("/api/chat", { seed, history: [...history, { role: "assistant", text: "x" }, { role: "user", text: "And money?" }], charts }, PAID);
-  assert.deepEqual(followUp.body.questions, { used: 1, max: 5 }, "follow-ups on the same draw are free");
+  assert.deepEqual(followUp.body.questions, { used: 1, max: 5, extra: 0 }, "follow-ups on the same draw are free");
 
   for (let i = 2; i <= 5; i++) {
     const { body: d } = await post("/api/draw", {});

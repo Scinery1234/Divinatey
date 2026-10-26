@@ -7,13 +7,15 @@
     "build": "vite build",
     "start": "node --env-file-if-exists=.env server/index.js",
     "test": "node --test",
-    "astro:pages": "node scripts/astro/build-pages.mjs"
+    "astro:pages": "node scripts/astro/build-pages.mjs",
+    "stripe:setup": "node --env-file-if-exists=.env scripts/stripe-setup.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",
     "@supabase/supabase-js": "2.117.3",
-    "express": "^5.3.0"
+    "express": "^5.3.0",
+    "stripe": "22.6.2"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.7.0",
