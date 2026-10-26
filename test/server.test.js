@@ -103,3 +103,25 @@ test("serves SPA routes and 404s unknown api routes", async () => {
   assert.equal((await fetch(base + "/api/nope")).status, 404);
   assert.equal((await fetch(base + "/api/health")).status, 200);
 });
+
+test("chart chat: paid only, recalculated chart in the prompt, one system only", async () => {
+  const chart = { system: "human-design", name: "Ava", date: "1990-07-15", time: "14:30", tz: "Australia/Sydney" };
+  const history = [{ role: "user", text: "What is my type about?" }];
+  assert.equal((await post("/api/chart-chat", { chart, history }, "")).status, 401);
+  assert.equal((await post("/api/chart-chat", { chart, history }, "test:u-free:f@example.com:free")).status, 403);
+
+  requests.length = 0;
+  const ok = await post("/api/chart-chat", { chart, history }, PAID);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.reply, "A warm reply. What do you notice?");
+  assert.equal(requests.length, 1);
+  const sys = requests[0].body.system;
+  assert.match(sys, /Human Design guide/);
+  assert.match(sys, /Ava's Human Design Bodygraph/);
+  assert.match(sys, /Projector/);
+  assert.doesNotMatch(sys, /Gene Key|Siddhi|Jyotish|nakshatra|Placidus/);
+  assert.deepEqual(requests[0].body.messages, [{ role: "user", content: "What is my type about?" }]);
+
+  assert.equal((await post("/api/chart-chat", { chart: { ...chart, system: "tarot" }, history }, PAID)).status, 400);
+  assert.equal((await post("/api/chart-chat", { chart, history: [] }, PAID)).status, 400);
+});

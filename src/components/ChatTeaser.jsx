@@ -13,11 +13,11 @@ export function suggestedQuestions(r) {
 }
 
 // For paid accounts: tap-to-ask chips before the first message.
-export function SuggestedChips({ reading, onAsk, disabled }) {
+export function SuggestedChips({ reading, questions, label, onAsk, disabled }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, margin: "4px 0 16px" }}>
-      <div style={{ fontSize: 9, letterSpacing: 2, color: T.purple, textTransform: "uppercase", fontWeight: 700, textAlign: "center" }}>ask the oracle</div>
-      {suggestedQuestions(reading).map(q => (
+      <div style={{ fontSize: 9, letterSpacing: 2, color: T.purple, textTransform: "uppercase", fontWeight: 700, textAlign: "center" }}>{label || "ask the oracle"}</div>
+      {(questions || suggestedQuestions(reading)).map(q => (
         <button key={q} disabled={disabled} onClick={() => onAsk(q)} style={chip}>{q}</button>
       ))}
     </div>
@@ -27,8 +27,11 @@ export function SuggestedChips({ reading, onAsk, disabled }) {
 const chip = { textAlign: "left", fontSize: 13, lineHeight: 1.5, padding: "10px 14px", borderRadius: 14, border: "1px solid " + T.purple + "44", background: T.surface, color: T.text, cursor: "pointer", fontFamily: "Georgia,serif" };
 
 // For everyone else: the chat, visible but locked.
-export function ChatTeaser({ reading, auth, onSignIn, onAccount, pulse, innerRef }) {
-  const qs = suggestedQuestions(reading);
+// `questions` and `preview` ([visible start, blurred rest]) default to the draw's.
+export function ChatTeaser({ reading, questions, preview, auth, onSignIn, onAccount, pulse, innerRef }) {
+  const qs = questions || suggestedQuestions(reading);
+  const [lead, rest] = preview || ["The card in “What's in the way?” is",
+    " pointing to something you already sense but haven't said out loud. Notice where you hold back, and what it would cost you to stop."];
   const signedIn = auth && auth.session;
   const accountsOn = auth && auth.enabled;
   let cta;
@@ -56,8 +59,8 @@ export function ChatTeaser({ reading, auth, onSignIn, onAccount, pulse, innerRef
 
       <div style={{ position: "relative", marginBottom: 16 }} aria-hidden="true">
         <div style={{ maxWidth: "88%", padding: "12px 16px", borderRadius: "18px 18px 18px 4px", background: T.surface, border: "1px solid " + T.border, color: T.muted, fontSize: 14, lineHeight: 1.75, fontFamily: "Georgia,serif" }}>
-          The card in “What's in the way?” is
-          <span style={{ filter: "blur(5px)", userSelect: "none" }}> pointing to something you already sense but haven't said out loud. Notice where you hold back, and what it would cost you to stop.</span>
+          {lead}
+          <span style={{ filter: "blur(5px)", userSelect: "none" }}>{rest}</span>
         </div>
       </div>
 

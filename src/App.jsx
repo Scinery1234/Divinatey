@@ -186,7 +186,7 @@ export default function App() {
           <ChartNav current={chart} onNav={goChart}/>
           {chart === "account"
             ? <AccountScreen auth={auth} onOpenChart={openSaved}/>
-            : <ChartScreen system={chart} meta={systems} auth={auth} prefill={prefill} onPrefillUsed={function(){setPrefill(null);}} onOpenSaved={openSaved} onSignIn={function(){goChart("account");}}/>}
+            : <ChartScreen system={chart} meta={systems} auth={auth} canChat={canChat} onAccount={function(){goChart("account");}} onCrisis={function(){setCrisis(true);}} prefill={prefill} onPrefillUsed={function(){setPrefill(null);}} onOpenSaved={openSaved} onSignIn={function(){goChart("account");}}/>}
           <div style={{marginTop:18}}><FooterLinks onPage={openPage} onCrisis={function(){setCrisis(true);}}/></div>
         </div>
       </main>

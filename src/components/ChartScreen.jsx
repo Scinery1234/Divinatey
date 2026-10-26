@@ -3,6 +3,7 @@ import { T, GRAD } from "../theme.js";
 import { findPlaces, makeChart, chartErrorText, saveChartSlot } from "../api.js";
 import { useAstroStyles } from "../astroStyles.js";
 import { PREVIEW } from "../preview.js";
+import { ChartChat } from "./ChartChat.jsx";
 
 export const CHART_SYSTEMS = [
   { id: "gene-keys", label: "Gene Keys" },
@@ -120,7 +121,7 @@ function ReferencePanel({ reference, onClose }) {
               {it.role && <div className="role">{it.role}</div>}
             </div></div></div>
           ))}
-          <LockedAI compact />
+          {!PREVIEW && <LockedAI compact />}
         </div>
       </div>
     </div>
@@ -146,6 +147,7 @@ function SaveBar({ auth, body, onSignIn }) {
   if (!auth || !auth.enabled) return null;
   const me = auth.me;
   const small = { fontSize: 12, borderRadius: 999, padding: "6px 14px", cursor: "pointer", fontWeight: 600 };
+  if (!auth.session && PREVIEW) return null;
   if (!auth.session) return <button onClick={onSignIn} style={{ ...small, color: T.muted, background: "none", border: "1px solid " + T.border }}>sign in to save</button>;
   if (!me) return null;
   if (me.plan !== "paid") return <span style={{ fontSize: 11, color: T.dim }}>Saving charts is part of the paid plan</span>;
@@ -169,7 +171,7 @@ function SaveBar({ auth, body, onSignIn }) {
   );
 }
 
-export function ChartScreen({ system, meta, auth, prefill, onPrefillUsed, onOpenSaved, onSignIn }) {
+export function ChartScreen({ system, meta, auth, canChat, prefill, onPrefillUsed, onOpenSaved, onSignIn, onAccount, onCrisis }) {
   useAstroStyles();
   const info = meta && meta[system];
   const needsLocation = info ? info.needsLocation : system === "natal" || system === "vedic";
@@ -252,7 +254,8 @@ export function ChartScreen({ system, meta, auth, prefill, onPrefillUsed, onOpen
         </div>
         <p style={{ fontSize: 12, color: T.dim, margin: "-4px 0 10px", textAlign: "center" }}>Pick another system above to see {result.body && result.body.name ? result.body.name + "'s" : "this person's"} chart there. It opens straight away and doesn't use another free chart.</p>
         <div className="astro" style={vars} dangerouslySetInnerHTML={{ __html: result.html }} />
-        <LockedAI />
+        {!canChat && <LockedAI />}
+        <ChartChat chart={result.body} canChat={canChat} auth={auth} onSignIn={onSignIn} onAccount={onAccount || onSignIn} onCrisis={onCrisis} />
         {showRef && <ReferencePanel reference={result.reference} onClose={() => setShowRef(false)} />}
       </div>
     );

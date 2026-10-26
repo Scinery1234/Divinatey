@@ -87,5 +87,39 @@ export function renderChart(inp) {
   };
 }
 
+// Each system's chat speaks only its own language; nothing from another system is included.
+const CHAT_VOICE = {
+  "gene-keys": "You are a Gene Keys contemplative guide. Use Gene Keys language: shadow, gift and siddhi, lines, spheres and the Activation, Venus and Pearl sequences.",
+  "human-design": "You are a Human Design guide. Use only Human Design concepts: type, strategy, authority, profile, centres, channels, gates and lines.",
+  "natal": "You are a thoughtful Western astrologer working with the tropical zodiac and Placidus houses.",
+  "vedic": "You are a traditional Jyotish (Vedic astrology) guide working in the sidereal zodiac with the Lahiri ayanamsa. Use only Jyotish concepts.",
+};
+const plain = h => String(h || "").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/\s+/g, " ").trim();
+
+// What the chat is told about one chart: its placements and today's transits,
+// calculated fresh from the birth details.
+export function chartChatContext(inp) {
+  const engine = engines[inp.system];
+  const utc = engine.toUTC(inp.date, inp.time, inp.tz);
+  if (!utc) throw new ChartInputError("invalid time");
+  const full = { ...inp, utc };
+  const chart = engine.SYSTEM.compute(full);
+  chart.input = full;
+  const facts = engine.referenceData(chart).map(t =>
+    t.name + ":\n" + t.items.map(i => "- " + [i.title, plain(i.code), plain(i.sub), i.role ? "(" + i.role + ")" : ""].filter(Boolean).join(" · ")).join("\n")
+  ).join("\n\n");
+  const data = engine.SYSTEM.reading.data(chart);
+  const now = Object.entries(data).filter(([k, v]) => k !== "name" && typeof v === "string" && /tech|personal|sky|week|dasha|pan/i.test(k))
+    .map(([k, v]) => k + ": " + v).join("\n").slice(0, 6000);
+  return {
+    voice: CHAT_VOICE[inp.system],
+    title: engine.SYSTEM.title,
+    name: inp.name,
+    facts: facts.slice(0, 12000),
+    now,
+    today: new Date().toISOString().slice(0, 10),
+  };
+}
+
 export const systemMeta = () => Object.fromEntries(Object.entries(engines).map(([id, e]) =>
   [id, { title: e.SYSTEM.formTitle, sub: e.SYSTEM.formSub, needsLocation: !!e.SYSTEM.needsLocation }]));

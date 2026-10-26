@@ -4,11 +4,11 @@ import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 import { divineReading, isValidSeed } from "../shared/oracle.js";
 import { getQuantumSeed } from "./seed.js";
-import { interpretReading, chat, OracleRefusal } from "./oracle-ai.js";
+import { interpretReading, chat, chartChat, OracleRefusal } from "./oracle-ai.js";
 import { rateLimit } from "./rate-limit.js";
 import { freeChartLimit } from "./free-limit.js";
 import { createStore, SLOTS } from "./store.js";
-import { searchPlaces, warmPlaces, parseChartInput, renderChart, chartKey, systemMeta, ChartInputError } from "./astro.js";
+import { searchPlaces, warmPlaces, chartChatContext, parseChartInput, renderChart, chartKey, systemMeta, ChartInputError } from "./astro.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(here, "..", "dist");
@@ -80,6 +80,14 @@ app.post("/api/interpret", aiLimit, async (req, res) => {
   }
 });
 
+// Alternating user/assistant turns, starting and ending with the user.
+function validHistory(history) {
+  return Array.isArray(history) && history.length > 0 && history.length % 2 === 1 &&
+    history.every((m, i) =>
+      m && typeof m.text === "string" && m.text.length > 0 && m.text.length <= MAX_TEXT &&
+      m.role === (i % 2 === 0 ? "user" : "assistant"));
+}
+
 // Chat is part of the paid plan. (identify, requireUser and requirePaid are
 // defined with the account routes below; they're looked up per request.)
 // In the paid preview anyone may chat, under a tighter per-IP limit.
@@ -90,12 +98,7 @@ app.post("/api/chat", aiLimit, chatAccess, async (req, res) => {
   const reading = readingFrom(req, res);
   if (!reading) return;
   const { synthesis, history } = req.body;
-  const valid = Array.isArray(history) && history.length > 0 &&
-    history.every((m, i) =>
-      m && typeof m.text === "string" && m.text.length > 0 && m.text.length <= MAX_TEXT &&
-      m.role === (i % 2 === 0 ? "user" : "assistant")) &&
-    history.length % 2 === 1;
-  if (!valid) return res.status(400).json({ error: "invalid history" });
+  if (!validHistory(history)) return res.status(400).json({ error: "invalid history" });
   // Keep the newest turns, starting on a user message.
   const trimmed = history.slice(-MAX_HISTORY);
   try {
@@ -224,6 +227,25 @@ app.post("/api/chart", chartLimit, identifyOptional, async (req, res) => {
     res.json({ ...chart, quota: paid ? null : await usage(() => freeCharts.record(req.ip, key)) });
   } catch (err) {
     if (err instanceof ChartInputError) return res.status(400).json({ error: err.message });
+    sendError(res, err);
+  }
+});
+
+// Chat about one chart (paid / preview). The chart is recalculated from the
+// birth details, so the browser never supplies prompt text.
+app.post("/api/chart-chat", aiLimit, chatAccess, async (req, res) => {
+  let ctx;
+  try {
+    ctx = chartChatContext(parseChartInput(req.body.chart));
+  } catch (err) {
+    if (err instanceof ChartInputError) return res.status(400).json({ error: err.message });
+    return sendError(res, err);
+  }
+  const { history } = req.body;
+  if (!validHistory(history)) return res.status(400).json({ error: "invalid history" });
+  try {
+    res.json({ reply: await chartChat(ctx, history.slice(-MAX_HISTORY)) });
+  } catch (err) {
     sendError(res, err);
   }
 });

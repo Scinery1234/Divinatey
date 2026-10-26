@@ -103,3 +103,18 @@ export function chat(r, synthesis, history) {
     messages: history.map(m => ({ role: m.role, content: m.text })),
   });
 }
+
+// Chat about one birth chart. Only that chart's facts (and today's transits
+// for it) are in context: no other system, chart or earlier reading.
+export function chartChat(ctx, history) {
+  const system =
+    ctx.voice + " You are speaking with someone about " + (ctx.name ? ctx.name + "'s" : "their") + " " + ctx.title + ".\n\n" +
+    "The chart (calculated, not to be recited):\n" + ctx.facts + "\n\n" +
+    (ctx.now ? "Current transits for this chart, as of " + ctx.today + ":\n" + ctx.now + "\n\n" : "") +
+    "Answer their questions about this chart only, referring to specific placements where it helps. " +
+    "Respond in plain text (no markdown), warm and grounded, 3-6 sentences, ending with one reflective question when it fits.\n\n" +
+    "This is a tool for reflection, not prediction or professional advice. If the person describes a medical, legal or financial decision, " +
+    "gently encourage appropriate professional guidance. If they express thoughts of suicide or self-harm, set the chart aside, respond with care, " +
+    "and encourage them to contact Lifeline on 13 11 14 or emergency services on 000.";
+  return ask({ system, messages: history.map(m => ({ role: m.role, content: m.text })) });
+}

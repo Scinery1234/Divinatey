@@ -100,8 +100,8 @@ function buildProfile(nd,dd){
 // Layout (top → bottom):
 //   VERTICAL:    Life's Work, Pearl, SQ (centre), Attraction, Purpose
 //   HORIZONTAL:  Radiance — SQ — Evolution
-//   CIRCLE of 4: EQ (upper-left), IQ (upper-right),
-//                Culture (lower-left), Vocation (lower-right)
+//   CIRCLE of 4: Vocation (upper-left), Culture (upper-right),
+//                IQ (lower-left), EQ (lower-right)
 function buildSVG(p){
   const W=860,H=880,R=42;
   const CA='#b07010',CV='#8b2050',CP='#1a6b48';
@@ -111,13 +111,13 @@ function buildSVG(p){
   const POS={
     lw:[430, 68],  // Life's Work  top vertical    Activation+Pearl
     pe:[430,220],  // Pearl        2nd vertical    Pearl
-    eq:[310,308],  // EQ           upper-left      Venus
-    iq:[550,308],  // IQ           upper-right     Venus
+    vo:[310,308],  // Vocation     upper-left      Venus+Pearl
+    cu:[550,308],  // Culture      upper-right     Pearl
     ra:[ 95,420],  // Radiance     left horiz      Activation
     sq:[430,420],  // SQ           centre          Venus
     ev:[765,420],  // Evolution    right horiz     Activation
-    cu:[310,532],  // Culture      lower-left      Pearl
-    vo:[550,532],  // Vocation     lower-right     Venus+Pearl
+    iq:[310,532],  // IQ           lower-left      Venus
+    eq:[550,532],  // EQ           lower-right     Venus
     at:[430,620],  // Attraction   4th vertical    Venus
     pu:[430,775],  // Purpose      bottom vertical Activation+Venus
   };
@@ -183,13 +183,13 @@ function buildSVG(p){
     switch(key){
       case 'lw': lbl=NM(cx,cy-R-14)+SL(cx-lx,cy-6); break;
       case 'pe': lbl=NL(cx-lx,cy-4)+SL(cx-lx,cy+10); break;
-      case 'eq': lbl=NL(cx-lx,cy-4)+SL(cx-lx,cy+10); break;
-      case 'iq': lbl=NR(cx+lx,cy-4)+SR(cx+lx,cy+10); break;
+      case 'eq': lbl=NR(cx+lx,cy-4)+SR(cx+lx,cy+10); break;
+      case 'iq': lbl=NL(cx-lx,cy-4)+SL(cx-lx,cy+10); break;
       case 'ra': lbl=NM(cx,cy-R-14)+SM(cx,cy+R+14); break;
       case 'sq': lbl=NR(cx+lx,cy-4)+SR(cx+lx,cy+10); break;
       case 'ev': lbl=NM(cx,cy-R-14)+SM(cx,cy+R+14); break;
-      case 'cu': lbl=NL(cx-lx,cy-4)+SL(cx-lx,cy+10); break;
-      case 'vo': lbl=NR(cx+lx,cy-4)+SR(cx+lx,cy+10); break;
+      case 'cu': lbl=NR(cx+lx,cy-4)+SR(cx+lx,cy+10); break;
+      case 'vo': lbl=NL(cx-lx,cy-4)+SL(cx-lx,cy+10); break;
       case 'at': lbl=NR(cx+lx,cy-4)+SR(cx+lx,cy+10); break;
       case 'pu': lbl=NM(cx,cy+R+15)+SM(cx,cy+R+30); break;
     }
