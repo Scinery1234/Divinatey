@@ -42,7 +42,7 @@ test("bad input is rejected without using the free allowance", async () => {
   assert.equal((await post("/api/chart", { ...birth, system: "gene-keys", tz: "Mars/Olympus" })).status, 400);
 });
 
-test("free tier: two different charts a day, repeats are free, no AI in the page", async () => {
+test("free tier: two people a day, all four systems each; repeats are free; no AI", async () => {
   const a = await post("/api/chart", { ...birth, system: "human-design", name: "<script>x</script>" });
   assert.equal(a.status, 200);
   assert.match(a.body.html, /Bodygraph/);
@@ -52,17 +52,19 @@ test("free tier: two different charts a day, repeats are free, no AI in the page
   assert.ok(a.body.reference.every(t => t.items.every(i => !("prompt" in i))));
   assert.deepEqual(a.body.quota, { used: 1, max: 2 });
 
-  const again = await post("/api/chart", { ...birth, system: "human-design", name: "Someone else" });
-  assert.equal(again.status, 200);
-  assert.deepEqual(again.body.quota, { used: 1, max: 2 });
+  for (const system of ["gene-keys", "natal", "vedic"]) {
+    const same = await post("/api/chart", { ...birth, system, name: "Someone" });
+    assert.equal(same.status, 200, system);
+    assert.deepEqual(same.body.quota, { used: 1, max: 2 }, "same person, other system: not counted");
+  }
 
-  const b = await post("/api/chart", { ...birth, system: "vedic" });
+  const b = await post("/api/chart", { ...birth, system: "vedic", date: "1985-03-02" });
   assert.equal(b.status, 200);
   assert.deepEqual(b.body.quota, { used: 2, max: 2 });
 
-  const c = await post("/api/chart", { ...birth, system: "natal" });
+  const c = await post("/api/chart", { ...birth, system: "natal", date: "1972-12-24" });
   assert.equal(c.status, 429);
   assert.equal(c.body.error, "free_limit");
 
-  assert.equal((await post("/api/chart", { ...birth, system: "vedic" })).status, 200, "an already-opened chart still works");
+  assert.equal((await post("/api/chart", { ...birth, system: "gene-keys", date: "1985-03-02" })).status, 200, "a person already opened today still works");
 });

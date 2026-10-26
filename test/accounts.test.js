@@ -57,8 +57,8 @@ test("paid accounts save two slots, validated, and can delete", async () => {
 test("paid accounts skip the free daily limit; free accounts don't", async () => {
   const one = await call("POST", "/api/chart", null, natal);
   assert.equal(one.status, 200);
-  assert.equal((await call("POST", "/api/chart", FREE, { ...natal, system: "vedic" })).status, 429);
-  const stale = await call("POST", "/api/chart", "expired-token", natal);
+  assert.equal((await call("POST", "/api/chart", FREE, { ...natal, system: "vedic", date: "1985-03-02" })).status, 429);
+  const stale = await call("POST", "/api/chart", "expired-token", { ...natal, system: "vedic" });
   assert.equal(stale.status, 200, "a stale token is treated as signed out, not an error");
   const paid = await call("POST", "/api/chart", PAID, { ...natal, system: "vedic" });
   assert.equal(paid.status, 200);
@@ -71,7 +71,7 @@ test("paid preview: anyone can chat and skip the chart limit, only with the head
     body: body ? JSON.stringify(body) : undefined,
   }).then(async r => ({ status: r.status, body: await r.json() }));
   // FREE_CHARTS_PER_DAY is 1 here and this IP has used it already.
-  const c = await pv("POST", "/api/chart", { ...natal, system: "gene-keys" });
+  const c = await pv("POST", "/api/chart", { ...natal, system: "gene-keys", date: "1972-12-24" });
   assert.equal(c.status, 200);
   assert.equal(c.body.quota, null);
   const { body: { seed } } = await pv("POST", "/api/draw", {});

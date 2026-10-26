@@ -8,7 +8,7 @@ import { interpretReading, chat, OracleRefusal } from "./oracle-ai.js";
 import { rateLimit } from "./rate-limit.js";
 import { freeChartLimit } from "./free-limit.js";
 import { createStore, SLOTS } from "./store.js";
-import { searchPlaces, parseChartInput, renderChart, chartKey, systemMeta, ChartInputError } from "./astro.js";
+import { searchPlaces, warmPlaces, parseChartInput, renderChart, chartKey, systemMeta, ChartInputError } from "./astro.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(here, "..", "dist");
@@ -198,7 +198,8 @@ app.get("/api/places", placeLimit, (req, res) => {
   res.json(q.length < 2 ? [] : searchPlaces(q));
 });
 
-// Free: FREE_CHARTS_PER_DAY different charts per IP per day. Paid: no daily limit.
+// Free: FREE_CHARTS_PER_DAY different people (birth details) per IP per day,
+// each with all four systems. Paid and preview: no daily limit.
 app.post("/api/chart", chartLimit, identifyOptional, async (req, res) => {
   let inp;
   try {
@@ -231,4 +232,8 @@ app.use((req, res, next) => {
   res.sendFile(path.join(dist, "index.html"), err => err && next());
 });
 
-app.listen(PORT, () => console.log("Divinatey listening on http://localhost:" + PORT));
+app.listen(PORT, () => {
+  console.log("Divinatey listening on http://localhost:" + PORT);
+  // Build the place index now so the first birth-place search is instant.
+  setImmediate(() => { const t = Date.now(); warmPlaces(); console.log("Place index ready in " + (Date.now() - t) + " ms"); });
+});

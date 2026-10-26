@@ -23,5 +23,6 @@ test("preview switched off", async () => {
   assert.equal((await pv("/api/chat", { seed, history: [{ role: "user", text: "hi" }] })).status, 401);
   const birth = { system: "vedic", date: "1990-07-15", time: "14:30", tz: "Australia/Sydney", lat: -33.87, lon: 151.21 };
   assert.equal((await pv("/api/chart", birth)).status, 200);
-  assert.equal((await pv("/api/chart", { ...birth, system: "natal" })).status, 429);
+  assert.equal((await pv("/api/chart", { ...birth, system: "natal" })).status, 200, "same person, other system");
+  assert.equal((await pv("/api/chart", { ...birth, system: "natal", date: "1985-03-02" })).status, 429);
 });

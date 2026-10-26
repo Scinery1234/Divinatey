@@ -41,26 +41,34 @@ function PlacePicker({ value, onPick }) {
   const [list, setList] = useState([]);
   const [active, setActive] = useState(-1);
   const [open, setOpen] = useState(false);
+  const [status, setStatus] = useState("idle");      // idle | searching | done | error
   const req = useRef(0);
 
   useEffect(() => { setQ(value ? value.label : ""); }, [value]);
   useEffect(() => {
     if (value && q === value.label) return;
     const text = q.trim();
-    if (text.length < 2) { setList([]); return; }
+    if (text.length < 2) { setList([]); setStatus("idle"); return; }
     const id = ++req.current;
     const t = setTimeout(() => {
-      findPlaces(text).then(r => { if (id === req.current) { setList(r); setActive(-1); setOpen(true); } }).catch(() => {});
+      setStatus("searching"); setOpen(true);
+      findPlaces(text)
+        .then(r => { if (id === req.current) { setList(r); setActive(-1); setStatus("done"); } })
+        .catch(() => { if (id === req.current) { setList([]); setStatus("error"); } });
     }, 150);
     return () => clearTimeout(t);
   }, [q, value]);
 
-  const pick = p => { onPick(p); setOpen(false); setList([]); };
+  const pick = p => { onPick(p); setOpen(false); setList([]); setStatus("idle"); };
+  const message = status === "searching" && !list.length ? "Searching places…"
+    : status === "done" && !list.length ? "No places match. Try a nearby town, or check the spelling."
+    : status === "error" ? "Couldn't search places just now. Try again in a moment." : null;
   return (
     <div style={{ position: "relative" }}>
       <input id="place" style={field} value={q} placeholder="Start typing a town or city…" autoComplete="off"
         role="combobox" aria-expanded={open && list.length > 0} aria-controls="place-list" aria-autocomplete="list"
         onChange={e => { setQ(e.target.value); if (value) onPick(null); }}
+        onFocus={() => { if (list.length || message) setOpen(true); }}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         onKeyDown={e => {
           if (!list.length) return;
@@ -68,6 +76,9 @@ function PlacePicker({ value, onPick }) {
           else if (e.key === "Enter") { e.preventDefault(); pick(list[Math.max(0, active)]); }
           else if (e.key === "Escape") setOpen(false);
         }} />
+      {open && !list.length && message && (
+        <div role="status" style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20, background: T.surface, border: "1px solid " + T.border, borderRadius: 10, marginTop: 4, padding: "10px 12px", fontSize: 13, color: T.dim, boxShadow: "0 8px 24px rgba(30,22,48,.12)" }}>{message}</div>
+      )}
       {open && list.length > 0 && (
         <div id="place-list" role="listbox" style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20, background: T.surface, border: "1px solid " + T.border, borderRadius: 10, marginTop: 4, maxHeight: 260, overflowY: "auto", boxShadow: "0 8px 24px rgba(30,22,48,.12)" }}>
           {list.map((p, i) => {
@@ -172,9 +183,7 @@ export function ChartScreen({ system, meta, auth, prefill, onPrefillUsed, onOpen
   const [result, setResult] = useState(null);
   const [showRef, setShowRef] = useState(false);
   const top = useRef(null);
-
-  // One chart slot: switching system starts a fresh chart (the form keeps the birth details).
-  useEffect(() => { setResult(null); setError(null); setShowRef(false); }, [system]);
+  const lastBirth = useRef(null);    // the person on screen: switching system reuses their details
 
   const pickPlace = p => { setPlace(p); if (p) { setLat(String(p.lat)); setLon(String(p.lon)); } };
   const useNow = () => {
@@ -195,6 +204,7 @@ export function ChartScreen({ system, meta, auth, prefill, onPrefillUsed, onOpen
     setBusy(true);
     try {
       const r = await makeChart(body);
+      lastBirth.current = f;
       setResult({ ...r, body: { ...body, place: f.place.label } });
       setTimeout(() => top.current && top.current.scrollIntoView({ behavior: "smooth" }), 50);
     } catch (err) {
@@ -215,6 +225,16 @@ export function ChartScreen({ system, meta, auth, prefill, onPrefillUsed, onOpen
     generate(f);
   }, [prefill, system]);   // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Switching system shows the same person's chart in that system straight away.
+  // The free limit counts people, so this never uses up another free chart.
+  const firstRun = useRef(true);
+  useEffect(() => {
+    if (firstRun.current) { firstRun.current = false; return; }
+    setResult(null); setError(null); setShowRef(false);
+    if (prefill && prefill.system === system) return;
+    if (lastBirth.current) generate(lastBirth.current);
+  }, [system]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   const saved = auth && auth.me && auth.me.plan === "paid" ? (auth.me.charts || []) : [];
 
   if (result) {
@@ -222,13 +242,14 @@ export function ChartScreen({ system, meta, auth, prefill, onPrefillUsed, onOpen
     return (
       <div ref={top}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, margin: "4px 0 12px", flexWrap: "wrap" }}>
-          <button onClick={() => setResult(null)} style={{ fontSize: 12, color: T.muted, background: "none", border: "1px solid " + T.border, borderRadius: 999, padding: "6px 14px", cursor: "pointer", fontWeight: 600 }}>← new chart</button>
+          <button onClick={() => { lastBirth.current = null; setResult(null); }} style={{ fontSize: 12, color: T.muted, background: "none", border: "1px solid " + T.border, borderRadius: 999, padding: "6px 14px", cursor: "pointer", fontWeight: 600 }}>← someone else</button>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {result.quota && <span style={{ fontSize: 11, color: T.dim }}>{result.quota.used} of {result.quota.max} free charts today</span>}
+            {result.quota && <span style={{ fontSize: 11, color: T.dim }}>free today: {result.quota.used} of {result.quota.max} people</span>}
             <SaveBar auth={auth} body={result.body} onSignIn={onSignIn} />
             <button onClick={() => setShowRef(true)} style={{ ...primaryBtn, padding: "7px 16px", fontSize: 12 }}>✦ chart reference</button>
           </div>
         </div>
+        <p style={{ fontSize: 12, color: T.dim, margin: "-4px 0 10px", textAlign: "center" }}>Pick another system above to see {result.body && result.body.name ? result.body.name + "'s" : "this person's"} chart there. It opens straight away and doesn't use another free chart.</p>
         <div className="astro" style={vars} dangerouslySetInnerHTML={{ __html: result.html }} />
         <LockedAI />
         {showRef && <ReferencePanel reference={result.reference} onClose={() => setShowRef(false)} />}
@@ -276,7 +297,7 @@ export function ChartScreen({ system, meta, auth, prefill, onPrefillUsed, onOpen
           <button type="submit" disabled={busy} style={{ ...primaryBtn, padding: "13px 30px", fontSize: 15 }}>{busy ? "calculating…" : "generate chart ✦"}</button>
           <button type="button" onClick={useNow} style={{ fontSize: 12, color: T.muted, background: "none", border: "1px solid " + T.border, borderRadius: 999, padding: "8px 14px", cursor: "pointer" }}>use this moment (current transits)</button>
         </div>
-        <p style={{ fontSize: 11, color: T.dim, margin: 0, lineHeight: 1.6 }}>{PREVIEW ? "Paid preview: no daily limit. Sign in to save charts." : saved.length || (auth && auth.me && auth.me.plan === "paid") ? "Paid plan: no daily limit. Save charts from the chart view." : "Free: one chart at a time, two different charts a day. Nothing is saved."} Places: GeoNames (CC BY 4.0).</p>
+        <p style={{ fontSize: 11, color: T.dim, margin: 0, lineHeight: 1.6 }}>{PREVIEW ? "Paid preview: no daily limit. Sign in to save charts." : saved.length || (auth && auth.me && auth.me.plan === "paid") ? "Paid plan: no daily limit. Save charts from the chart view." : "Free: two people a day, and each person's birth details open all four charts. Nothing is saved."} Places: GeoNames (CC BY 4.0).</p>
       </div>
     </form>
   );

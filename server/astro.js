@@ -34,6 +34,9 @@ for (const [id, mod] of Object.entries(SYSTEMS)) {
 }
 const placeEngine = instantiate(read("core/cities.js"), "{ searchPlaces }");
 
+// Builds the place index (111k places) ahead of the first search.
+export function warmPlaces() { placeEngine.searchPlaces("zz"); }
+
 export function searchPlaces(q) {
   return placeEngine.searchPlaces(String(q).slice(0, 80)).slice(0, 12)
     .map(c => ({ label: c.label, tz: c.tz, lat: c.lat, lon: c.lon }));
@@ -64,8 +67,9 @@ export function parseChartInput(body) {
   return inp;
 }
 
-// What identifies "the same chart" for the free limit (the name doesn't count).
-export const chartKey = inp => [inp.system, inp.date, inp.time, inp.tz, inp.lat ?? "", inp.lon ?? ""].join("|");
+// The free limit counts people, not charts: one set of birth details opens all
+// four systems. (Neither the system, the name nor fine-tuned coordinates count.)
+export const chartKey = inp => [inp.date, inp.time, inp.tz].join("|");
 
 export function renderChart(inp) {
   const engine = engines[inp.system];

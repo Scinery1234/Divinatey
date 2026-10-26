@@ -7,7 +7,7 @@ I Ching + Tarot drawn from this exact moment in time, interpreted by Claude, plu
 - **Server** (`server/`, Express): holds the Anthropic API key, generates the seed (timestamp + ANU quantum noise, with hardware entropy as fallback), casts the reading and asks Claude to interpret it.
 - **Client** (`src/`, React + Vite): the splash screen, the reading, the follow-up chat, crisis resources, and the About/Terms/Privacy pages (at `/about`, `/terms`, `/privacy`).
 - **Shared** (`shared/`): the casting engine used by both sides, the crisis keywords, and the chart engine (`shared/astro/`).
-- **Charts** (`server/astro.js`): the server calculates and renders every chart from the birth details, so the free limit can't be bypassed. Each system is loaded into its own isolated instance of the engine. Routes: `GET /api/places?q=` (birth place search over 111k GeoNames places), `GET /api/systems`, `POST /api/chart`. The free tier allows `FREE_CHARTS_PER_DAY` (2) different charts per IP per day; reopening the same chart doesn't count. IPs are held only as keyed hashes and reset daily.
+- **Charts** (`server/astro.js`): the server calculates and renders every chart from the birth details, so the free limit can't be bypassed. Each system is loaded into its own isolated instance of the engine. Routes: `GET /api/places?q=` (birth place search over 111k GeoNames places), `GET /api/systems`, `POST /api/chart`. The free tier allows `FREE_CHARTS_PER_DAY` (2) different people per IP per day. One person's birth details open all four systems and count once; reopening them doesn't count again. IPs are held only as keyed hashes and reset daily.
 
 The client only ever sends the **seed** back. The server rebuilds the reading from it, so a client can't get arbitrary content into the prompts, and the API key never reaches the browser. The three interpretations (I Ching, Tarot, synthesis) run in parallel and return structured JSON.
 
@@ -50,7 +50,7 @@ If the app runs behind a reverse proxy or load balancer, set `TRUST_PROXY=1` so 
 | `PORT` | `8787` | |
 | `RATE_LIMIT_PER_10MIN` | `40` | Interpret and chat requests per IP |
 | `TRUST_PROXY` | (unset) | Set to `1` behind a proxy |
-| `FREE_CHARTS_PER_DAY` | `2` | Different charts each IP may open per UTC day |
+| `FREE_CHARTS_PER_DAY` | `2` | Different people (birth details) each IP may open per UTC day, each in all four systems |
 | `SUPABASE_URL` | (unset) | Turns accounts on, with the two keys below |
 | `SUPABASE_ANON_KEY` | (unset) | Public key the browser uses to sign in |
 | `SUPABASE_SERVICE_ROLE_KEY` | (unset) | Secret; server only |
