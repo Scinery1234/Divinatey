@@ -8,13 +8,14 @@ import { GuidePanel, ChartReading } from "./ChartGuide.jsx";
 import { loadSession, saveSession } from "../session.js";
 
 // One chart = one system for one set of birth details.
-const chartKeyOf = b => b ? [b.system, b.date, b.time, b.tz, b.lat ?? "", b.lon ?? ""].join("|") : "";
+const chartKeyOf = b => b ? [b.system, b.date, b.time, b.tz, b.lat ?? "", b.lon ?? "", b.birthName ?? ""].join("|") : "";
 
 export const CHART_SYSTEMS = [
   { id: "gene-keys", label: "Gene Keys" },
   { id: "human-design", label: "Human Design" },
   { id: "natal", label: "Natal" },
   { id: "vedic", label: "Vedic" },
+  { id: "numerology", label: "Numerology" },
 ];
 
 const primaryBtn = { background: GRAD, border: "none", borderRadius: 999, color: "#fff", fontWeight: 700, cursor: "pointer", letterSpacing: 0.5 };
@@ -148,7 +149,10 @@ export function ChartScreen({ system, meta, auth, canChat, prefill, onPrefillUse
   useAstroStyles();
   const info = meta && meta[system];
   const needsLocation = info ? info.needsLocation : system === "natal" || system === "vedic";
+  const needsBirthName = info ? info.needsBirthName : system === "numerology";
+  const dateOnly = info ? info.dateOnly : system === "numerology";
   const [name, setName] = useState("");
+  const [birthName, setBirthName] = useState("");
   const [date, setDate] = useState("");
   const [time, setTime] = useState("12:00");
   const [place, setPlace] = useState(null);
@@ -181,9 +185,11 @@ export function ChartScreen({ system, meta, auth, canChat, prefill, onPrefillUse
 
   const generate = async f => {
     setError(null);
+    if (needsBirthName && !(f.birthName || "").trim()) return setError("Enter the full name at birth.");
     if (!f.date) return setError("Enter a birth date.");
-    if (!f.place) return setError("Choose a birth place from the list.");
-    const body = { system, name: f.name, date: f.date, time: f.time, tz: f.place.tz };
+    if (!f.place && !dateOnly) return setError("Choose a birth place from the list.");
+    const body = { system, name: f.name, date: f.date, time: f.time || "12:00", ...(f.place ? { tz: f.place.tz } : {}) };
+    if ((f.birthName || "").trim()) body.birthName = f.birthName.trim();
     if (needsLocation) {
       body.lat = parseFloat(f.lat); body.lon = parseFloat(f.lon);
       if (!isFinite(body.lat) || !isFinite(body.lon)) return setError("Choose a birth place from the list, or enter its latitude and longitude.");
@@ -193,22 +199,22 @@ export function ChartScreen({ system, meta, auth, canChat, prefill, onPrefillUse
       const r = await makeChart(body);
       lastBirth.current = f;
       saveSession({ person: f });
-      setResult({ ...r, body: { ...body, place: f.place.label } });
+      setResult({ ...r, body: { ...body, place: f.place ? f.place.label : "" } });
       setTimeout(() => top.current && top.current.scrollIntoView({ behavior: "smooth" }), 50);
     } catch (err) {
       setError(chartErrorText(err));
     }
     setBusy(false);
   };
-  const submit = e => { e.preventDefault(); generate({ name, date, time, place, lat, lon }); };
+  const submit = e => { e.preventDefault(); generate({ name, birthName, date, time, place, lat, lon }); };
 
   // Opening a saved chart: fill the form from it and generate straight away.
   useEffect(() => {
     if (!prefill || prefill.system !== system) return;
     const b = prefill.birth;
-    const p = { label: b.place || b.tz, tz: b.tz, lat: b.lat ?? NaN, lon: b.lon ?? NaN };
-    const f = { name: prefill.name || "", date: b.date, time: b.time, place: p, lat: b.lat ?? "", lon: b.lon ?? "" };
-    setName(f.name); setDate(f.date); setTime(f.time); setPlace(p); setLat(String(f.lat)); setLon(String(f.lon));
+    const p = b.tz && b.tz !== "UTC" ? { label: b.place || b.tz, tz: b.tz, lat: b.lat ?? NaN, lon: b.lon ?? NaN } : null;
+    const f = { name: prefill.name || "", birthName: b.birthName || "", date: b.date, time: b.time, place: p, lat: b.lat ?? "", lon: b.lon ?? "" };
+    setName(f.name); setBirthName(f.birthName); setDate(f.date); setTime(f.time); setPlace(p); setLat(String(f.lat)); setLon(String(f.lon));
     onPrefillUsed && onPrefillUsed();
     generate(f);
   }, [prefill, system]);   // eslint-disable-line react-hooks/exhaustive-deps
@@ -221,8 +227,8 @@ export function ChartScreen({ system, meta, auth, canChat, prefill, onPrefillUse
       firstRun.current = false;
       // Coming back to the page (or refreshing): bring back the person on screen.
       const person = !prefill && loadSession().person;
-      if (person && person.date && person.place) {
-        setName(person.name || ""); setDate(person.date); setTime(person.time); setPlace(person.place);
+      if (person && person.date && (person.place || person.birthName)) {
+        setName(person.name || ""); setBirthName(person.birthName || ""); setDate(person.date); setTime(person.time); setPlace(person.place);
         setLat(person.lat == null ? "" : String(person.lat)); setLon(person.lon == null ? "" : String(person.lon));
         generate(person);
       }
@@ -249,7 +255,7 @@ export function ChartScreen({ system, meta, auth, canChat, prefill, onPrefillUse
         </div>
         <p style={{ fontSize: 12, color: T.dim, margin: "-4px 0 10px", textAlign: "center" }}>Pick another system above to see {result.body && result.body.name ? result.body.name + "'s" : "this person's"} chart there. It opens straight away and doesn't use another free chart.</p>
         <div className="astro" style={vars} dangerouslySetInnerHTML={{ __html: result.html }} />
-        {canChat ? <ChartReading reading={result.reading} chart={result.body} texts={texts} setText={setText} /> : <LockedAI />}
+        {canChat ? <div className="astro" style={{ ...vars, marginTop: 16 }}><ChartReading reading={result.reading} chart={result.body} texts={texts} setText={setText} /></div> : <LockedAI />}
         <ChartChat chart={result.body} canChat={canChat} auth={auth} onSignIn={onSignIn} onAccount={onAccount || onSignIn} onCrisis={onCrisis} />
         {showRef && <GuidePanel reference={result.reference} chart={result.body} canExplain={canChat} texts={texts} setText={setText}
           lockedCard={!PREVIEW && <LockedAI compact />} onClose={() => setShowRef(false)} />}
@@ -273,16 +279,19 @@ export function ChartScreen({ system, meta, auth, canChat, prefill, onPrefillUse
         </div>
       )}
       <div style={{ display: "grid", gap: 14 }}>
-        <div><label style={lbl} htmlFor="cname">Name (optional)</label><input id="cname" style={field} value={name} maxLength={60} onChange={e => setName(e.target.value)} placeholder="Whose chart is this?" /></div>
+        {needsBirthName && <div><label style={lbl} htmlFor="cbname">Full name at birth</label><input id="cbname" style={field} value={birthName} maxLength={100} onChange={e => setBirthName(e.target.value)} placeholder="As on the birth certificate" />
+          <p style={{ fontSize: 11, color: T.dim, margin: "6px 0 0", lineHeight: 1.6 }}>Every first, middle and last name you were given. AI readings get only the numbers, never the name itself.</p></div>}
+        <div><label style={lbl} htmlFor="cname">{needsBirthName ? "Name you use now (optional)" : "Name (optional)"}</label><input id="cname" style={field} value={name} maxLength={60} onChange={e => setName(e.target.value)} placeholder={needsBirthName ? "If it differs from your birth name" : "Whose chart is this?"} /></div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div><label style={lbl} htmlFor="cdate">Birth date</label><input id="cdate" type="date" style={field} value={date} onChange={e => setDate(e.target.value)} /></div>
-          <div><label style={lbl} htmlFor="ctime">Birth time</label><input id="ctime" type="time" style={field} value={time} onChange={e => setTime(e.target.value)} /></div>
+          <div><label style={lbl} htmlFor="ctime">Birth time{dateOnly ? " (optional)" : ""}</label><input id="ctime" type="time" style={field} value={time} onChange={e => setTime(e.target.value)} /></div>
         </div>
         <div>
-          <label style={lbl} htmlFor="place">Birth place</label>
+          <label style={lbl} htmlFor="place">Birth place{dateOnly ? " (optional)" : ""}</label>
           <PlacePicker value={place} onPick={pickPlace} />
           <p style={{ fontSize: 11, color: T.dim, margin: "6px 0 0", lineHeight: 1.6 }}>
             {place && place.tz ? `Timezone ${place.tz}` + (isFinite(place.lat) ? ` · ${Math.abs(place.lat).toFixed(2)}°${place.lat < 0 ? "S" : "N"}, ${Math.abs(place.lon).toFixed(2)}°${place.lon < 0 ? "W" : "E"}` : "")
+              : dateOnly ? "Numerology doesn't use the time or place. Add them to open this person's other charts too."
               : "Any town of 1,000+ people. If yours isn't listed, pick the nearest one."}
           </p>
         </div>
@@ -295,9 +304,9 @@ export function ChartScreen({ system, meta, auth, canChat, prefill, onPrefillUse
         {error && <p role="alert" style={{ margin: 0, fontSize: 13, color: T.pink }}>{error}</p>}
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <button type="submit" disabled={busy} style={{ ...primaryBtn, padding: "13px 30px", fontSize: 15 }}>{busy ? "calculating…" : "generate chart ✦"}</button>
-          <button type="button" onClick={useNow} style={{ fontSize: 12, color: T.muted, background: "none", border: "1px solid " + T.border, borderRadius: 999, padding: "8px 14px", cursor: "pointer" }}>use this moment (current transits)</button>
+          {!dateOnly && <button type="button" onClick={useNow} style={{ fontSize: 12, color: T.muted, background: "none", border: "1px solid " + T.border, borderRadius: 999, padding: "8px 14px", cursor: "pointer" }}>use this moment (current transits)</button>}
         </div>
-        <p style={{ fontSize: 11, color: T.dim, margin: 0, lineHeight: 1.6 }}>{PREVIEW ? "Paid preview: no daily limit. Sign in to save charts." : saved.length || (auth && auth.me && auth.me.plan === "paid") ? "Paid plan: no daily limit. Save charts from the chart view." : "Free: two people a day, and each person's birth details open all four charts. Nothing is saved."} Places: GeoNames (CC BY 4.0).</p>
+        <p style={{ fontSize: 11, color: T.dim, margin: 0, lineHeight: 1.6 }}>{PREVIEW ? "Paid preview: no daily limit. Sign in to save charts." : saved.length || (auth && auth.me && auth.me.plan === "paid") ? "Paid plan: no daily limit. Save charts from the chart view." : "Free: two people a day, and each person's birth details open every chart. Nothing is saved."} Places: GeoNames (CC BY 4.0).</p>
       </div>
     </form>
   );

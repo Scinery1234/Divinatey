@@ -325,7 +325,7 @@ function apiCall(prompt,maxTok){
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Page framework. SYSTEM supplies:
-//   id, title, formTitle, formSub, needsLocation, accent{...}
+//   id, title, formTitle, formSub, needsLocation, needsBirthName, dateOnly, accent{...}
 //   compute(input) → chart
 //   header(chart,input) → extra meta html;  badges(chart) → [{n,h,p}]
 //   chartHTML(chart);  positionsHTML(chart);  transitsHTML(chart)
@@ -338,12 +338,13 @@ function formHTML(){
   const S=SYSTEM;
   return `<div id="form-section"><div class="form-card">
     <h2>${S.formTitle}</h2><p class="sub">${S.formSub||''}</p>
-    <label for="name">Name (optional)</label><input type="text" id="name" placeholder="Your name">
+    ${S.needsBirthName?`<label for="bname">Full name at birth</label><input type="text" id="bname" maxlength="100" placeholder="As on the birth certificate">
+    <label for="name">Name you use now (optional)</label>`:`<label for="name">Name (optional)</label>`}<input type="text" id="name" placeholder="Your name">
     <div class="row2">
       <div><label for="bdate">Birth Date</label><input type="date" id="bdate"></div>
       <div><label for="btime">Birth Time</label><input type="time" id="btime" value="12:00"></div>
     </div>
-    <label for="tzInput">Birth Place</label>
+    <label for="tzInput">Birth Place${S.dateOnly?' (optional)':''}</label>
     <div class="tz-wrap"><input type="text" id="tzInput" placeholder="Start typing a town or city…" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="tzDrop">
       <input type="hidden" id="tz"><div id="tzDrop" role="listbox"></div></div>
     <p class="hint" id="placeInfo">Any town of 1,000+ people. If yours isn’t listed, pick the nearest one${S.needsLocation?' and adjust the coordinates below':''}.</p>
@@ -364,12 +365,16 @@ function readInput(){
   const date=document.getElementById('bdate').value;
   const time=document.getElementById('btime').value||'12:00';
   const typed=document.getElementById('tzInput').value.trim();
-  const tz=tzUsable(document.getElementById('tz').value||(typed.includes('/')?typed:''));
+  const tz=tzUsable(document.getElementById('tz').value||(typed.includes('/')?typed:''))||(SYSTEM.dateOnly?'UTC':null);
   if(!date)return formError('Please enter a birth date.');
   if(!tz)return formError('Please choose your birth place from the list.');
   const utc=toUTC(date,time,tz);
   if(!utc)return formError('Could not convert to UTC. Check your date/time/timezone.');
   const inp={name,date,time,tz,utc};
+  if(SYSTEM.needsBirthName){
+    inp.birthName=document.getElementById('bname').value.trim();
+    if(!/[a-z]/i.test(inp.birthName.normalize('NFD')))return formError('Please enter the full name at birth.');
+  }
   if(SYSTEM.needsLocation){
     const lat=parseFloat(document.getElementById('lat').value),lon=parseFloat(document.getElementById('lon').value);
     if(!isFinite(lat)||!isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)return formError('Please enter the birth latitude and longitude (or pick a city).');
@@ -400,7 +405,7 @@ function chartBodyHTML(c){
   const badges=(S.badges(c)||[]).map(b=>`<div class="badge"><div class="badge-n">${b.n}</div><div class="badge-t"><h3>${b.h}</h3><p>${b.p}</p></div></div>`).join('');
   return `<div class="chart-hdr">
       <h1>${i.name?esc(i.name)+'’s':'Your'} ${S.title}</h1>
-      <div class="chart-meta">Born ${i.date} at ${i.time} · ${esc(i.tz)}${loc} · ${fmtUTC(i.utc)}${S.header?' · '+S.header(c):''}</div>
+      <div class="chart-meta">${S.dateOnly?`Born ${i.date}${i.birthName?' · '+esc(i.birthName):''}`:`Born ${i.date} at ${i.time} · ${esc(i.tz)}${loc} · ${fmtUTC(i.utc)}`}${S.header?' · '+S.header(c):''}</div>
     </div>
     <div class="badges">${badges}</div>
     ${S.chartHTML(c)}

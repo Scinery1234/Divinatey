@@ -151,7 +151,7 @@ app.post("/api/chat", aiLimit, chatAccess, async (req, res) => {
   if (Array.isArray(req.body.charts) && req.body.charts.length) {
     try {
       const seen = new Set();
-      charts = req.body.charts.slice(0, 4).map(parseChartInput).filter(c => !seen.has(c.system) && seen.add(c.system)).map(chartFactCards);
+      charts = req.body.charts.slice(0, 5).map(parseChartInput).filter(c => !seen.has(c.system) && seen.add(c.system)).map(chartFactCards);
     } catch (err) {
       if (err instanceof ChartInputError) return res.status(400).json({ error: err.message });
       return sendError(res, err);
@@ -269,6 +269,7 @@ app.put("/api/charts/:slot", accountLimit, identify, requireUser, requirePaid, a
   }
   const birth = { date: inp.date, time: inp.time, tz: inp.tz, place: String(req.body.place || "").slice(0, 120) };
   if ("lat" in inp) { birth.lat = inp.lat; birth.lon = inp.lon; }
+  if (inp.birthName) birth.birthName = inp.birthName;
   try {
     await store.saveChart(req.user.id, slot, { system: inp.system, name: inp.name, birth });
     res.json({ charts: await store.listCharts(req.user.id) });
@@ -305,7 +306,7 @@ app.get("/api/places", placeLimit, (req, res) => {
 });
 
 // Free: FREE_CHARTS_PER_DAY different people (birth details) per IP per day,
-// each with all four systems. Paid and preview: no daily limit.
+// each in every system. Paid and preview: no daily limit.
 app.post("/api/chart", chartLimit, identifyOptional, async (req, res) => {
   let inp;
   try {

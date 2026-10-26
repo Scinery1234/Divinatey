@@ -16,7 +16,7 @@ before(async () => {
 });
 after(() => server.kill());
 
-const post = (path, body) => fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+const post = (path, body, headers = {}) => fetch(base + path, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) })
   .then(async r => ({ status: r.status, body: await r.json() }));
 const birth = { date: "1990-07-15", time: "14:30", tz: "Australia/Sydney", lat: -33.87, lon: 151.21 };
 
@@ -30,9 +30,11 @@ test("place search returns places with timezone and coordinates", async () => {
 
 test("systems list", async () => {
   const r = await fetch(base + "/api/systems").then(r => r.json());
-  assert.deepEqual(Object.keys(r).sort(), ["gene-keys", "human-design", "natal", "vedic"]);
+  assert.deepEqual(Object.keys(r).sort(), ["gene-keys", "human-design", "natal", "numerology", "vedic"]);
   assert.equal(r.natal.needsLocation, true);
   assert.equal(r["gene-keys"].needsLocation, false);
+  assert.equal(r.numerology.needsBirthName, true);
+  assert.equal(r.numerology.dateOnly, true);
 });
 
 test("bad input is rejected without using the free allowance", async () => {
@@ -52,8 +54,8 @@ test("free tier: two people a day, all four systems each; repeats are free; no A
   assert.ok(a.body.reference.every(t => t.items.every(i => !("prompt" in i))));
   assert.deepEqual(a.body.quota, { used: 1, max: 2 });
 
-  for (const system of ["gene-keys", "natal", "vedic"]) {
-    const same = await post("/api/chart", { ...birth, system, name: "Someone" });
+  for (const system of ["gene-keys", "natal", "vedic", "numerology"]) {
+    const same = await post("/api/chart", { ...birth, system, name: "Someone", birthName: "Mary Lynn Smith" });
     assert.equal(same.status, 200, system);
     assert.deepEqual(same.body.quota, { used: 1, max: 2 }, "same person, other system: not counted");
   }
@@ -67,4 +69,17 @@ test("free tier: two people a day, all four systems each; repeats are free; no A
   assert.equal(c.body.error, "free_limit");
 
   assert.equal((await post("/api/chart", { ...birth, system: "gene-keys", date: "1985-03-02" })).status, 200, "a person already opened today still works");
+});
+
+test("numerology: needs the full name at birth, but not the place; the name never reaches a prompt", async () => {
+  assert.equal((await post("/api/chart", { ...birth, system: "numerology" })).status, 400, "no birth name");
+  assert.equal((await post("/api/chart", { ...birth, system: "numerology", birthName: "1234 !!" })).status, 400, "no letters");
+  assert.equal((await post("/api/chart", { ...birth, system: "numerology", birthName: "x".repeat(101) })).status, 400, "too long");
+  assert.equal((await post("/api/chart", { system: "natal", date: "1990-07-15", lat: 1, lon: 1 })).status, 400, "other systems still need a place");
+  const r = await post("/api/chart", { system: "numerology", date: "1990-07-15", birthName: "Mary Lynn <b>Smith</b>" }, { "x-paid-preview": "1" });
+  assert.equal(r.status, 200);
+  assert.match(r.body.html, /Life Path/);
+  assert.match(r.body.html, /Born 1990-07-15 · Mary Lynn &lt;b&gt;Smith/);
+  assert.doesNotMatch(r.body.html, /<b>Smith/);
+  assert.ok(r.body.reference.find(t => t.key === "core").items.some(i => i.title === "Life Path" && i.code === "5"));
 });

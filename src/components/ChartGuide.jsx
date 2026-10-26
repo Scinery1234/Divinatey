@@ -86,9 +86,9 @@ export function ChartReading({ reading, chart, texts, setText }) {
   const [showTech, setShowTech] = useState({});
   if (!reading) return null;
   return (
-    <div className="section" style={{ marginTop: 20 }}>
+    <div className="section" style={{ marginTop: 0, borderTop: "none", paddingTop: 0 }}>
       <h3 className="sec-h">✦ {reading.title}</h3>
-      <p className="tagline">Each section is written on its own from this chart and today's sky.</p>
+      <p className="tagline">Each section is written on its own from this chart and where things stand today.</p>
       {reading.sections.map(s => {
         const id = "r" + s.id, tid = "r" + s.id + "t";
         return (

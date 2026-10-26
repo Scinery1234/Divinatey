@@ -18,6 +18,7 @@ const SYSTEM_BLURB = {
   "human-design": ["Human Design", "Your bodygraph: type, strategy, inner authority, defined centres and channels."],
   "natal": ["Natal astrology", "The Western chart of your birth moment: planets, houses, aspects and patterns."],
   "vedic": ["Vedic astrology", "Jyotish in the sidereal zodiac: your Lagna, nakshatras and the dasha period you're in."],
+  "numerology": ["Numerology", "Your life path and the numbers in your birth name, the long stretches of life, and the year you're in."],
 };
 
 const FAQ = [
@@ -71,16 +72,16 @@ export function Home({ onDraw, onContinue, onChart, onAccount, auth, billingOn, 
           <div style={card}>
             <div style={{ fontSize: 30, color: T.purple, lineHeight: 1, marginBottom: 10, fontFamily: serif }} aria-hidden="true">☉ ☽ ✶</div>
             <h3 style={{ fontFamily: serif, fontWeight: 400, fontSize: 20, margin: "0 0 6px", color: T.text }}>Your birth charts</h3>
-            <p style={{ ...body, fontSize: 14 }}>Enter your birth date, time and place once, and open four charts calculated from that moment, with today's transits and a two-week forecast.</p>
+            <p style={{ ...body, fontSize: 14 }}>Enter your birth details once and open five charts: four calculated from your birth moment, with today's transits and a two-week forecast, plus numerology from your birth name and date.</p>
             <button onClick={() => onChart("natal")} style={{ ...primary, padding: "10px 22px", fontSize: 13, marginTop: 14 }}>open my chart ✦</button>
           </div>
         </div>
       </section>
 
-      {/* ── Four charts ──────────────────────────────────────────────────── */}
+      {/* ── Five charts ──────────────────────────────────────────────────── */}
       <section style={section} aria-labelledby="charts">
-        <p style={eyebrow}>one birth moment, four lenses</p>
-        <h2 id="charts" style={h2}>Four charts from the same few details</h2>
+        <p style={eyebrow}>one set of birth details, five lenses</p>
+        <h2 id="charts" style={h2}>Five charts from the same few details</h2>
         <p style={body}>Switch between them freely: your details carry across, and each system speaks only its own language.</p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))", gap: 12, marginTop: 18 }}>
           {CHART_SYSTEMS.map(s => (
@@ -122,7 +123,7 @@ export function Home({ onDraw, onContinue, onChart, onAccount, auth, billingOn, 
             <div style={{ fontFamily: serif, fontSize: 30, color: T.text, marginBottom: 10 }}>$0</div>
             <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14, color: T.muted, lineHeight: 1.9 }}>
               <li>Unlimited I Ching + Tarot readings, interpreted</li>
-              <li>All four charts for two people a day</li>
+              <li>All five charts for two people a day</li>
               <li>Transits, a two-week forecast and a chart reference</li>
             </ul>
             <button onClick={onDraw} style={{ fontSize: 13, color: T.purple, background: "none", border: "1px solid " + T.purple + "66", borderRadius: 999, padding: "10px 20px", cursor: "pointer", fontWeight: 700, marginTop: 16 }}>draw a reading</button>

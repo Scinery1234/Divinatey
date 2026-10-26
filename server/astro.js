@@ -17,6 +17,7 @@ export const SYSTEMS = {
   "human-design": "humandesign",
   "natal": "natal",
   "vedic": "vedic",
+  "numerology": "numerology",
 };
 
 function instantiate(extraSrc, exportsSrc) {
@@ -54,10 +55,16 @@ export function parseChartInput(body) {
   const year = +date.slice(0, 4);
   if (year < 1800 || year > 2100 || isNaN(Date.parse(date + "T00:00:00Z"))) throw new ChartInputError("invalid date");
   if (!/^\d{2}:\d{2}$/.test(time) || +time.slice(0, 2) > 23 || +time.slice(3) > 59) throw new ChartInputError("invalid time");
-  const tz = engine.tzUsable(String(b.tz || ""));
+  // Date-only systems (numerology) don't need the birth place; without one, the day is read in UTC.
+  const tz = engine.tzUsable(String(b.tz || "")) || (engine.SYSTEM.dateOnly && !b.tz ? "UTC" : null);
   if (!tz) throw new ChartInputError("invalid timezone");
   const name = String(b.name || "").trim().slice(0, 60);
   const inp = { system: b.system, name, date, time, tz };
+  // The full name at birth: required by numerology, kept with the person's details for the others.
+  const birthName = String(b.birthName || "").replace(/\s+/g, " ").trim();
+  if (birthName.length > 100) throw new ChartInputError("invalid birth name");
+  if (birthName) inp.birthName = birthName;
+  if (engine.SYSTEM.needsBirthName && !/[a-z]/i.test(birthName.normalize("NFD"))) throw new ChartInputError("invalid birth name");
   if (engine.SYSTEM.needsLocation) {
     const lat = Number(b.lat), lon = Number(b.lon);
     if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new ChartInputError("invalid location");
@@ -68,7 +75,7 @@ export function parseChartInput(body) {
 }
 
 // The free limit counts people, not charts: one set of birth details opens all
-// four systems. (Neither the system, the name nor fine-tuned coordinates count.)
+// systems. (Neither the system, the names nor fine-tuned coordinates count.)
 export const chartKey = inp => [inp.date, inp.time, inp.tz].join("|");
 
 function computeChart(inp) {
@@ -124,6 +131,7 @@ const CHAT_VOICE = {
   "human-design": "You are a Human Design guide. Use only Human Design concepts: type, strategy, authority, profile, centres, channels, gates and lines.",
   "natal": "You are a thoughtful Western astrologer working with the tropical zodiac and Placidus houses.",
   "vedic": "You are a traditional Jyotish (Vedic astrology) guide working in the sidereal zodiac with the Lahiri ayanamsa. Use only Jyotish concepts.",
+  "numerology": "You are a numerologist working in the Pythagorean system. Use only numerology concepts: life path, expression, soul urge, personality, birthday and maturity numbers, pinnacles, challenges and personal year, month and day cycles.",
 };
 const plain = h => String(h || "").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/\s+/g, " ").trim();
 
@@ -152,8 +160,8 @@ export function chartChatContext(inp) {
   };
 }
 
-const SYSTEM_PLAIN = { "gene-keys": "Gene Keys", "human-design": "Human Design", "natal": "Natal astrology", "vedic": "Vedic astrology" };
-const TRANSIT_KEYS = { "gene-keys": ["personalTech"], "human-design": ["personal"], "natal": ["personal"], "vedic": ["personal"] };
+const SYSTEM_PLAIN = { "gene-keys": "Gene Keys", "human-design": "Human Design", "natal": "Natal astrology", "vedic": "Vedic astrology", "numerology": "Numerology" };
+const TRANSIT_KEYS = { "gene-keys": ["personalTech"], "human-design": ["personal"], "natal": ["personal"], "vedic": ["personal"], "numerology": ["personal"] };
 
 // A linked chart as short fact cards the divination chat can retrieve from:
 // one card per placement (from the chart guide) plus one per current transit.
@@ -172,4 +180,5 @@ export function chartFactCards(inp) {
 }
 
 export const systemMeta = () => Object.fromEntries(Object.entries(engines).map(([id, e]) =>
-  [id, { title: e.SYSTEM.formTitle, sub: e.SYSTEM.formSub, needsLocation: !!e.SYSTEM.needsLocation }]));
+  [id, { title: e.SYSTEM.formTitle, sub: e.SYSTEM.formSub, needsLocation: !!e.SYSTEM.needsLocation,
+    needsBirthName: !!e.SYSTEM.needsBirthName, dateOnly: !!e.SYSTEM.dateOnly }]));
