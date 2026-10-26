@@ -2,8 +2,9 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { T, SCRIPT, GRAD } from "./theme.js";
 import { PAGES } from "./content.js";
 import { detectCrisis } from "../shared/safety.js";
-import { drawReading, interpret, askOracle, oracleErrorText } from "./api.js";
+import { drawReading, interpret, askOracle, oracleErrorText, getSystems } from "./api.js";
 import { PageOverlay, CrisisOverlay, CardMini, Divider, FooterLinks, VikLink } from "./components/common.jsx";
+import { ChartScreen, ChartNav, CHART_SYSTEMS } from "./components/ChartScreen.jsx";
 
 const now = () => new Date().toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"});
 const hexChar = n => n ? String.fromCodePoint(0x4DC0+n-1) : "?";
@@ -15,6 +16,27 @@ const pageFromPath = () => {
   const p = window.location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase();
   return PAGES[p] ? p : null;
 };
+
+// Chart screens live at /gene-keys, /human-design, /natal and /vedic.
+const chartFromPath = () => {
+  const p = window.location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase();
+  return CHART_SYSTEMS.some(c => c.id === p) ? p : null;
+};
+
+function useChartRoute() {
+  const [chart, setChart] = useState(chartFromPath);
+  useEffect(function(){
+    const h = function(){ setChart(chartFromPath()); };
+    window.addEventListener("popstate", h);
+    return function(){ window.removeEventListener("popstate", h); };
+  }, []);
+  useEffect(function(){
+    const c = CHART_SYSTEMS.find(x => x.id === chart);
+    if (c) document.title = c.label + " · Divinatey";
+  }, [chart]);
+  const go = useCallback(function(id){ window.history.pushState(null, "", "/" + (id || "")); setChart(id); }, []);
+  return [chart, go];
+}
 
 function usePage() {
   const [page, setPage] = useState(pageFromPath);
@@ -44,7 +66,12 @@ export default function App() {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState(null);
   const [crisis, setCrisis] = useState(false);
-  const [page, openPage, closePage] = usePage();
+  const [page, openPage, closePageRaw] = usePage();
+  const [chart, goChart] = useChartRoute();
+  const [systems, setSystems] = useState(null);
+  useEffect(function(){ if (chart && !systems) getSystems().then(setSystems).catch(function(){}); }, [chart, systems]);
+  // Closing an overlay page returns to the screen it was opened from.
+  const closePage = useCallback(function(){ closePageRaw(); if (chart) window.history.replaceState(null, "", "/" + chart); }, [closePageRaw, chart]);
   const drawId = useRef(0);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
@@ -116,6 +143,24 @@ export default function App() {
     {crisis && <CrisisOverlay onClose={function(){setCrisis(false);}}/>}
   </>;
 
+  // ── CHARTS ──────────────────────────────────────────────────────────────────
+  if (chart) return (
+    <div className="app-shell">
+      <header style={{padding:"12px 18px",borderBottom:"1px solid "+T.border,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexShrink:0,background:T.surface,flexWrap:"wrap"}}>
+        <button className="link-btn" onClick={function(){goChart(null);}} style={{fontSize:22,color:T.text,letterSpacing:1,fontFamily:SCRIPT}}>Divinatey</button>
+        <button onClick={function(){setCrisis(true);}} aria-label="Crisis support" style={{fontSize:11,color:"#f87171",background:"rgba(248,113,113,0.1)",border:"1px solid rgba(248,113,113,0.3)",borderRadius:999,padding:"4px 10px",cursor:"pointer"}}>🆘</button>
+      </header>
+      <main style={{flex:1,overflowY:"auto"}}>
+        <div style={{maxWidth:980,margin:"0 auto",padding:"14px 14px 24px"}}>
+          <ChartNav current={chart} onNav={goChart}/>
+          <ChartScreen system={chart} meta={systems}/>
+          <div style={{marginTop:18}}><FooterLinks onPage={openPage} onCrisis={function(){setCrisis(true);}}/></div>
+        </div>
+      </main>
+      {overlays}
+    </div>
+  );
+
   // ── SPLASH ──────────────────────────────────────────────────────────────────
   if (phase==="splash") return (
     <div className="app-shell">
@@ -126,6 +171,8 @@ export default function App() {
         <p style={{fontSize:13,color:T.muted,margin:"0 0 20px",fontStyle:"italic",fontFamily:"Georgia,serif"}}>Think of a question for the oracle — or write it down — then draw.</p>
         <button onClick={startDraw} style={{...primaryBtn,padding:"16px 44px",fontSize:16}}>draw my reading ✦</button>
         <p style={{marginTop:20,fontSize:10,color:T.dim,letterSpacing:2,textTransform:"uppercase"}}>I Ching · Tarot</p>
+        <p style={{marginTop:28,fontSize:13,color:T.muted,margin:"28px 0 10px"}}>or open your chart</p>
+        <ChartNav hideDraw onNav={goChart}/>
         <p style={{marginTop:16,fontSize:12,color:T.dim,lineHeight:1.8}}>
           Prefer a human? Get coaching, psychotherapy and intuitive guidance with <VikLink/>.
         </p>
@@ -156,6 +203,7 @@ export default function App() {
 
       <main style={{flex:1,overflowY:"auto"}}>
         <div style={{maxWidth:640,margin:"0 auto",padding:"12px 14px"}}>
+        <div style={{margin:"0 0 6px"}}><ChartNav current={null} onNav={function(id){ if (id) goChart(id); }}/></div>
         {phase==="loading" && (
           <div style={{textAlign:"center",marginTop:80,color:T.muted}} role="status">
             <div className="pulse" style={{fontSize:36,marginBottom:20}}>✦</div>

@@ -6,6 +6,8 @@ import { divineReading, isValidSeed } from "../shared/oracle.js";
 import { getQuantumSeed } from "./seed.js";
 import { interpretReading, chat, OracleRefusal } from "./oracle-ai.js";
 import { rateLimit } from "./rate-limit.js";
+import { freeChartLimit } from "./free-limit.js";
+import { searchPlaces, parseChartInput, renderChart, chartKey, systemMeta, ChartInputError } from "./astro.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(here, "..", "dist");
@@ -87,6 +89,38 @@ app.post("/api/chat", aiLimit, async (req, res) => {
     const reply = await chat(reading, typeof synthesis === "string" ? synthesis.slice(0, 1000) : "", trimmed);
     res.json({ reply });
   } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// ── Charts (free tier: no AI) ────────────────────────────────────────────────
+const placeLimit = rateLimit({ windowMs: 60 * 1000, max: 120 });
+const chartLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 60 });
+const freeCharts = freeChartLimit({ max: Number(process.env.FREE_CHARTS_PER_DAY) || 2 });
+
+app.get("/api/systems", (req, res) => res.json(systemMeta()));
+
+app.get("/api/places", placeLimit, (req, res) => {
+  const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  res.json(q.length < 2 ? [] : searchPlaces(q));
+});
+
+app.post("/api/chart", chartLimit, (req, res) => {
+  let inp;
+  try {
+    inp = parseChartInput(req.body);
+  } catch (err) {
+    if (err instanceof ChartInputError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
+  const key = chartKey(inp);
+  const quota = freeCharts.check(req.ip, key);
+  if (!quota.ok) return res.status(429).json({ error: "free_limit", used: quota.used, max: quota.max });
+  try {
+    const chart = renderChart(inp);
+    res.json({ ...chart, quota: freeCharts.record(req.ip, key) });
+  } catch (err) {
+    if (err instanceof ChartInputError) return res.status(400).json({ error: err.message });
     sendError(res, err);
   }
 });

@@ -6,7 +6,8 @@
     "dev": "node scripts/dev.js",
     "build": "vite build",
     "start": "node --env-file-if-exists=.env server/index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "astro:pages": "node scripts/astro/build-pages.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {
