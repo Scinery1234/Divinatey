@@ -106,10 +106,24 @@ export async function interpretReading(r) {
   return { iching, tarot, synthesis: synth.synthesis, invitation: synth.invitation };
 }
 
-export function chat(r, synthesis, history) {
+// What the page showed about each card and the hexagram, so the chat stays
+// consistent with it. `interp` is {iching:{primary,lines,resulting}, tarot:[{pos,card,insight}]}.
+export function describeInterpretation(interp) {
+  if (!interp) return "";
+  const out = [], i = interp.iching || {};
+  if (i.primary) out.push("I Ching: " + i.primary);
+  if (i.lines) out.push("Changing lines: " + i.lines);
+  if (i.resulting) out.push("Resulting hexagram: " + i.resulting);
+  (interp.tarot || []).forEach(t => { if (t && t.insight) out.push("Tarot, " + t.pos + (t.card ? " (" + t.card + ")" : "") + ": " + t.insight); });
+  return out.join("\n");
+}
+
+export function chat(r, synthesis, history, interp) {
+  const shown = describeInterpretation(interp);
   const system =
     "You are the Digital Oracle of Divinatey. The person has drawn this reading — "+describeReading(r)+
     (synthesis ? ". The synthesis they were shown: \""+synthesis+"\"" : "")+".\n\n"+
+    (shown ? "What their reading page says about each part (stay consistent with it, building on it rather than repeating it):\n"+shown+"\n\n" : "")+
     "When they share what's on their mind, reinterpret the reading through that lens, with specific references to the hexagram and cards. "+
     "Respond in plain text (no markdown), warm, poetic and grounded, 3-5 sentences, ending with one reflective question.\n\n"+
     "This is a tool for reflection, not prediction or professional advice. If the person describes a medical, legal or financial decision, "+
@@ -176,7 +190,8 @@ function defaultFacts(charts) {
   return [...core, ...now].slice(0, 6);
 }
 
-export async function linkedChat(r, synthesis, history, charts) {
+export async function linkedChat(r, synthesis, history, charts, interp) {
+  const shown = describeInterpretation(interp);
   const t0 = Date.now(), times = {};
   const step = async (name, fn) => { const t = Date.now(); try { return await fn(); } finally { times[name] = Date.now() - t; } };
   const question = history[history.length - 1].text;
@@ -201,9 +216,10 @@ export async function linkedChat(r, synthesis, history, charts) {
     system: "You are the analyst behind the Digital Oracle of Divinatey. Write private working notes; technical terms are fine here.",
     messages: [{ role: "user", content:
       "Their draw: " + describeReading(r) + (synthesis ? "\nThe synthesis they were shown: \"" + synthesis + "\"" : "") +
+      (shown ? "\nWhat their reading page says about each part (stay consistent with it):\n" + shown : "") +
       "\n\nConversation so far:\n" + transcript(history) +
       "\n\nRelevant facts from the charts they chose to link:\n" + (facts.map(k => k.id + " | " + k.label + " | " + k.text).join("\n") || "(none apply)") +
-      "\n\ndraw: what the cards and hexagram say about their latest message (2-3 sentences).\n" +
+      "\n\ndraw: what the cards and hexagram say about their latest message, consistent with what their page already says (2-3 sentences).\n" +
       "chart: what the chart facts add (2-3 sentences), or an empty string if none apply.\n" +
       "fit: where the draw and the charts agree or pull against each other (1-2 sentences).\n" +
       "core: the single most useful insight for them right now (1-2 sentences).\n" +

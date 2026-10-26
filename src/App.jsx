@@ -173,7 +173,7 @@ export default function App() {
     let ticker = null;
     if (charts.length) { setLinkStep(0); ticker = setInterval(function(){ setLinkStep(function(s){ return Math.min(s+1, LINK_STEPS.length-1); }); }, 5000); }
     try {
-      const out = await askOracle(draw.seed, interp && interp.synthesis, history, charts);
+      const out = await askOracle(draw.seed, interp && interp.synthesis, history, charts, interp);
       if (id !== drawId.current) return;
       if (out.questions) setQuestions(out.questions);
       setMsgs(function(p){ return [...p, {role:"assistant",text:out.reply,ts:now(),drewOn:out.drewOn||undefined,note:note||undefined}]; });

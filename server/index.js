@@ -70,11 +70,37 @@ app.post("/api/draw", async (req, res) => {
   res.json({ seed, source, reading: divineReading(seed) });
 });
 
+// The interpretation the server wrote for each draw, so the chat can stay
+// consistent with what the page shows (kept a day, newest 2000 draws).
+const interpretations = new Map();
+function rememberInterpretation(seed, interp) {
+  interpretations.set(String(seed), { interp, at: Date.now() });
+  if (interpretations.size > 2000) interpretations.delete(interpretations.keys().next().value);
+}
+const cap = (v, n) => typeof v === "string" ? v.slice(0, n) : "";
+// Prefer the server's own copy; otherwise use the browser's, trimmed to size.
+function interpretationFor(seed, reading, fromClient) {
+  const kept = interpretations.get(String(seed));
+  if (kept && Date.now() - kept.at < 864e5) return kept.interp;
+  if (!fromClient || typeof fromClient !== "object") return null;
+  const i = fromClient.iching || {}, t = Array.isArray(fromClient.tarot) ? fromClient.tarot : [];
+  return {
+    iching: { primary: cap(i.primary, 600), lines: cap(i.lines, 400), resulting: cap(i.resulting, 400) },
+    // Card names come from the recalculated reading, never from the browser.
+    tarot: reading.cards.map(c => {
+      const hit = t.find(x => x && x.pos === c.pos);
+      return { pos: c.pos, card: c.name, insight: hit ? cap(hit.insight, 400) : "" };
+    }),
+  };
+}
+
 app.post("/api/interpret", aiLimit, async (req, res) => {
   const reading = readingFrom(req, res);
   if (!reading) return;
   try {
-    res.json(await interpretReading(reading));
+    const out = await interpretReading(reading);
+    rememberInterpretation(req.body.seed, out);
+    res.json(out);
   } catch (err) {
     sendError(res, err);
   }
@@ -102,6 +128,7 @@ app.post("/api/chat", aiLimit, chatAccess, async (req, res) => {
   // Keep the newest turns, starting on a user message.
   const trimmed = history.slice(-MAX_HISTORY);
   const synth = typeof synthesis === "string" ? synthesis.slice(0, 1000) : "";
+  const interp = interpretationFor(req.body.seed, reading, req.body.interpretation);
 
   // Charts the person chose to link: recalculated here from the birth details.
   let charts = [];
@@ -115,7 +142,7 @@ app.post("/api/chat", aiLimit, chatAccess, async (req, res) => {
     }
   }
   if (!charts.length) {
-    try { return res.json({ reply: await chat(reading, synth, trimmed) }); }
+    try { return res.json({ reply: await chat(reading, synth, trimmed, interp) }); }
     catch (err) { return sendError(res, err); }
   }
 
@@ -129,7 +156,7 @@ app.post("/api/chat", aiLimit, chatAccess, async (req, res) => {
       if (!asked.has(seed) && asked.size >= LINKED_PER_WEEK)
         return res.status(429).json({ error: "question_limit", used: asked.size, max: LINKED_PER_WEEK });
     }
-    const out = await linkedChat(reading, synth, trimmed, charts);
+    const out = await linkedChat(reading, synth, trimmed, charts, interp);
     let questions = null;
     if (counted) {
       await store.recordLinked(req.user.id, week, seed);

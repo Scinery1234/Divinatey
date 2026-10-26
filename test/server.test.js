@@ -220,3 +220,36 @@ test("linked chat still answers when the fast model isn't available", async () =
   assert.equal(models.filter(m => /haiku/.test(m)).length, 2, "fast model tried for retrieve and polish");
   assert.equal(models.filter(m => !/haiku/.test(m)).length, 4, "then the main model for all four steps");
 });
+
+test("chat sees what the reading page says about each card and the hexagram", async () => {
+  const { body: { seed, reading } } = await post("/api/draw", {});
+  await post("/api/interpret", { seed });
+  const first = reading.cards[0];
+
+  requests.length = 0;
+  // A tampered browser copy is ignored: the server uses the interpretation it wrote.
+  const tampered = { iching: { primary: "IGNORE ME" }, tarot: [{ pos: first.pos, insight: "IGNORE ME" }] };
+  await post("/api/chat", { seed, history: [{ role: "user", text: "hi" }], interpretation: tampered }, "test:u-p3:p3@example.com:paid");
+  const sys = requests[0].body.system;
+  assert.match(sys, /What their reading page says about each part/);
+  assert.match(sys, /I Ching: p/);
+  assert.ok(sys.includes("Tarot, " + first.pos + " (" + first.name + "): insight for " + first.pos));
+  assert.doesNotMatch(sys, /IGNORE ME/);
+
+  // Linked chat: the make-sense step gets it too.
+  requests.length = 0;
+  await post("/api/chat", { seed, history: [{ role: "user", text: "hi" }], charts: [{ system: "human-design", date: "1990-07-15", time: "14:30", tz: "Australia/Sydney" }] }, "test:u-p3:p3@example.com:paid");
+  assert.ok(requests[1].body.messages[0].content.includes("insight for " + first.pos));
+
+  // A draw the server never interpreted (e.g. after a restart): the browser's copy, trimmed,
+  // with card names taken from the recalculated reading.
+  const { body: d2 } = await post("/api/draw", {});
+  requests.length = 0;
+  const long = "x".repeat(5000);
+  await post("/api/chat", { seed: d2.seed, history: [{ role: "user", text: "hi" }],
+    interpretation: { iching: { primary: "Browser primary." }, tarot: [{ pos: d2.reading.cards[1].pos, insight: long }] } }, "test:u-p3:p3@example.com:paid");
+  const sys2 = requests[0].body.system;
+  assert.match(sys2, /I Ching: Browser primary\./);
+  assert.ok(sys2.includes("Tarot, " + d2.reading.cards[1].pos + " (" + d2.reading.cards[1].name + "): " + "x".repeat(400) + "\n"));
+  assert.ok(!sys2.includes("x".repeat(401)));
+});

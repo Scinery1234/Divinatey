@@ -29,8 +29,13 @@ const post = (path, body) => call("POST", path, body || {}, false);
 
 export const drawReading = () => post("/api/draw");
 export const interpret = seed => post("/api/interpret", { seed });
-export const askOracle = (seed, synthesis, history, charts) =>
-  call("POST", "/api/chat", { seed, synthesis, history: history.map(m => ({ role: m.role, text: m.text })), ...(charts && charts.length ? { charts } : {}) }, true);
+// `interp` is what the page shows about the reading; the server prefers its own copy.
+export const askOracle = (seed, synthesis, history, charts, interp) =>
+  call("POST", "/api/chat", {
+    seed, synthesis, history: history.map(m => ({ role: m.role, text: m.text })),
+    ...(charts && charts.length ? { charts } : {}),
+    ...(interp ? { interpretation: { iching: interp.iching, tarot: (interp.tarot || []).map(t => ({ pos: t.pos, insight: t.insight })) } } : {}),
+  }, true);
 
 const get = path => call("GET", path, undefined, false);
 
