@@ -55,6 +55,8 @@ If the app runs behind a reverse proxy or load balancer, set `TRUST_PROXY=1` so 
 | `SUPABASE_ANON_KEY` | (unset) | Public key the browser uses to sign in |
 | `SUPABASE_SERVICE_ROLE_KEY` | (unset) | Secret; server only |
 | `FREE_LIMIT_SECRET` | (random per start) | Key for hashing IPs in the free chart count |
+| `PAID_PREVIEW` | on | Set to `0` to close the paid preview at `/preview` |
+| `PREVIEW_CHAT_PER_10MIN` | `20` | Chat messages per IP in the preview |
 
 If a request is declined on policy grounds, it's automatically retried on Anthropic's recommended fallback model (`fallbacks: "default"`).
 
@@ -70,6 +72,12 @@ Accounts are optional: drawing and free charts work without them. With Supabase 
 The browser gets only the anon key (from `GET /api/config`) and uses it just to sign in. Every read and write of profiles, saved charts and free-tier usage goes through this server with the service-role key, which checks the plan; row-level security blocks direct writes. Plans are set in `profiles.plan` (`free` or `paid`); Stripe will update it in the next phase.
 
 Routes: `GET /api/me`, `PUT /api/charts/:slot` (paid, slots 1–2), `DELETE /api/charts/:slot`. Paid accounts skip the free daily chart limit.
+
+## Paid preview
+
+Until payments are switched on, every paid feature is open to everyone under `/preview` (for example `/preview/natal`): no daily chart limit, chat with the oracle without an account, and saving charts when signed in. The main site stays on the free tier. The app sends an `X-Paid-Preview: 1` header from `/preview` pages and the server honours it while `PAID_PREVIEW` isn't `0`. Preview chat has its own per-IP limit (`PREVIEW_CHAT_PER_10MIN`, 20). If accounts are on, add `https://<your-domain>/preview/account` to Supabase's redirect URLs too.
+
+Set `PAID_PREVIEW=0` to close the preview once Stripe is live.
 
 ## Standalone chart pages
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { T, GRAD } from "../theme.js";
 import { findPlaces, makeChart, chartErrorText, saveChartSlot } from "../api.js";
 import { useAstroStyles } from "../astroStyles.js";
+import { PREVIEW } from "../preview.js";
 
 export const CHART_SYSTEMS = [
   { id: "gene-keys", label: "Gene Keys" },
@@ -117,9 +118,10 @@ function ReferencePanel({ reference, onClose }) {
 function LockedAI({ compact }) {
   return (
     <div style={{ margin: compact ? "16px 0 0" : "20px 0", padding: compact ? 14 : 18, borderRadius: 14, background: "linear-gradient(135deg,#ede8ff,#fce7f3)", border: "1px solid " + T.purple + "44", fontFamily: "system-ui,sans-serif" }}>
-      <div style={{ fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: T.purple, fontWeight: 700, marginBottom: 6 }}>✦ Paid plan</div>
+      <div style={{ fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: T.purple, fontWeight: 700, marginBottom: 6 }}>{PREVIEW ? "✦ Paid preview" : "✦ Paid plan"}</div>
       <p style={{ margin: 0, fontSize: 13, lineHeight: 1.7, color: T.muted }}>
-        Two saved chart slots and no daily limit. AI explanations of every placement, transit readings and chat are coming next.
+        {PREVIEW ? "No daily limit here, and two saved chart slots once you sign in. AI explanations of every placement, transit readings and chat are coming next."
+          : "Two saved chart slots and no daily limit. AI explanations of every placement, transit readings and chat are coming next."}
       </p>
     </div>
   );
@@ -274,7 +276,7 @@ export function ChartScreen({ system, meta, auth, prefill, onPrefillUsed, onOpen
           <button type="submit" disabled={busy} style={{ ...primaryBtn, padding: "13px 30px", fontSize: 15 }}>{busy ? "calculating…" : "generate chart ✦"}</button>
           <button type="button" onClick={useNow} style={{ fontSize: 12, color: T.muted, background: "none", border: "1px solid " + T.border, borderRadius: 999, padding: "8px 14px", cursor: "pointer" }}>use this moment (current transits)</button>
         </div>
-        <p style={{ fontSize: 11, color: T.dim, margin: 0, lineHeight: 1.6 }}>{saved.length || (auth && auth.me && auth.me.plan === "paid") ? "Paid plan: no daily limit. Save charts from the chart view." : "Free: one chart at a time, two different charts a day. Nothing is saved."} Places: GeoNames (CC BY 4.0).</p>
+        <p style={{ fontSize: 11, color: T.dim, margin: 0, lineHeight: 1.6 }}>{PREVIEW ? "Paid preview: no daily limit. Sign in to save charts." : saved.length || (auth && auth.me && auth.me.plan === "paid") ? "Paid plan: no daily limit. Save charts from the chart view." : "Free: one chart at a time, two different charts a day. Nothing is saved."} Places: GeoNames (CC BY 4.0).</p>
       </div>
     </form>
   );

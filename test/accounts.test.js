@@ -23,7 +23,7 @@ const call = (method, path, token, body) => fetch(base + path, {
 const natal = { system: "natal", name: "Me", date: "1990-07-15", time: "14:30", tz: "Australia/Sydney", lat: -33.87, lon: 151.21, place: "Sydney, New South Wales, Australia" };
 
 test("config reports accounts off without Supabase keys", async () => {
-  assert.deepEqual((await call("GET", "/api/config")).body, { auth: null });
+  assert.deepEqual((await call("GET", "/api/config")).body, { auth: null, preview: true });
 });
 
 test("me needs a valid session", async () => {
@@ -63,4 +63,23 @@ test("paid accounts skip the free daily limit; free accounts don't", async () =>
   const paid = await call("POST", "/api/chart", PAID, { ...natal, system: "vedic" });
   assert.equal(paid.status, 200);
   assert.equal(paid.body.quota, null);
+});
+
+test("paid preview: anyone can chat and skip the chart limit, only with the header", async () => {
+  const pv = (method, path, body, token) => fetch(base + path, {
+    method, headers: { "content-type": "application/json", "x-paid-preview": "1", ...(token ? { authorization: "Bearer " + token } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  }).then(async r => ({ status: r.status, body: await r.json() }));
+  // FREE_CHARTS_PER_DAY is 1 here and this IP has used it already.
+  const c = await pv("POST", "/api/chart", { ...natal, system: "gene-keys" });
+  assert.equal(c.status, 200);
+  assert.equal(c.body.quota, null);
+  const { body: { seed } } = await pv("POST", "/api/draw", {});
+  const chat = await pv("POST", "/api/chat", { seed, history: [] });
+  assert.equal(chat.status, 400, "past the paywall: fails only on the empty history");
+  assert.equal((await call("POST", "/api/chat", null, { seed, history: [] })).status, 401, "without the header chat stays locked");
+  const me = await pv("GET", "/api/me", null, FREE);
+  assert.equal(me.body.plan, "paid", "signed-in users count as paid in the preview");
+  assert.equal((await pv("PUT", "/api/charts/1", natal, FREE)).status, 200);
+  assert.equal((await pv("PUT", "/api/charts/1", natal)).status, 401, "saving still needs an account");
 });

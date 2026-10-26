@@ -30,6 +30,12 @@ app.use((req, res, next) => {
   next();
 });
 
+// Paid preview (/preview in the app): every paid feature unlocked for anyone,
+// for testing before payments exist. PAID_PREVIEW=0 switches it off.
+const PREVIEW_ON = process.env.PAID_PREVIEW !== "0";
+const previewChatLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: Number(process.env.PREVIEW_CHAT_PER_10MIN) || 20 });
+app.use("/api", (req, res, next) => { req.preview = PREVIEW_ON && req.get("x-paid-preview") === "1"; next(); });
+
 const aiLimit = rateLimit({
   windowMs: 10 * 60 * 1000,
   max: Number(process.env.RATE_LIMIT_PER_10MIN) || 40,
@@ -74,9 +80,13 @@ app.post("/api/interpret", aiLimit, async (req, res) => {
   }
 });
 
-// Chat is part of the paid plan. (The middleware is defined with the account
-// routes below; the arrow wrappers look it up when a request arrives.)
-app.post("/api/chat", aiLimit, (q, r, n) => identify(q, r, n), (q, r, n) => requireUser(q, r, n), (q, r, n) => requirePaid(q, r, n), async (req, res) => {
+// Chat is part of the paid plan. (identify, requireUser and requirePaid are
+// defined with the account routes below; they're looked up per request.)
+// In the paid preview anyone may chat, under a tighter per-IP limit.
+const chatAccess = (req, res, next) => req.preview
+  ? previewChatLimit(req, res, next)
+  : identify(req, res, () => requireUser(req, res, () => requirePaid(req, res, next)));
+app.post("/api/chat", aiLimit, chatAccess, async (req, res) => {
   const reading = readingFrom(req, res);
   if (!reading) return;
   const { synthesis, history } = req.body;
@@ -113,7 +123,7 @@ async function identifyUser(req, res, next, optional) {
     const user = await store.getUser(h.slice(7));
     if (!user) return optional ? next() : res.status(401).json({ error: "signed_out" });
     const profile = await store.getProfile(user.id, user);
-    req.user = { id: user.id, email: user.email, plan: profile.plan === "paid" ? "paid" : "free" };
+    req.user = { id: user.id, email: user.email, plan: profile.plan === "paid" || req.preview ? "paid" : "free" };
     next();
   } catch (err) {
     sendError(res, err);
@@ -130,7 +140,7 @@ const slotParam = (req, res) => {
 // The anon key is public by design: the browser needs it to sign in.
 app.get("/api/config", (req, res) => {
   const url = process.env.SUPABASE_URL, anonKey = process.env.SUPABASE_ANON_KEY;
-  res.json({ auth: url && anonKey ? { url, anonKey } : null });
+  res.json({ auth: url && anonKey ? { url, anonKey } : null, preview: PREVIEW_ON });
 });
 
 app.get("/api/me", accountLimit, identify, requireUser, async (req, res) => {
@@ -198,7 +208,7 @@ app.post("/api/chart", chartLimit, identifyOptional, async (req, res) => {
     return sendError(res, err);
   }
   try {
-    const paid = req.user && req.user.plan === "paid";
+    const paid = req.preview || (req.user && req.user.plan === "paid");
     const key = chartKey(inp);
     if (!paid) {
       const quota = await freeCharts.check(req.ip, key);

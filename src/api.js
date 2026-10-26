@@ -1,3 +1,5 @@
+import { PREVIEW } from "./preview.js";
+
 export class ApiError extends Error {
   constructor(status, code) { super(code || "HTTP " + status); this.status = status; this.code = code; }
 }
@@ -8,6 +10,7 @@ export function setTokenSource(fn) { tokenSource = fn; }
 
 async function call(method, path, body, withAuth) {
   const headers = {};
+  if (PREVIEW) headers["X-Paid-Preview"] = "1";
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (withAuth) { const t = await tokenSource(); if (t) headers.Authorization = "Bearer " + t; }
   const res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });

@@ -2,6 +2,7 @@
 // only ever holds the public anon key; the server checks every request.
 import { useState, useEffect, useCallback } from "react";
 import { getConfig, getMe, setTokenSource } from "./api.js";
+import { href } from "./preview.js";
 
 let clientPromise = null;
 export function getAuthClient() {
@@ -21,7 +22,7 @@ setTokenSource(async () => {
   return data.session ? data.session.access_token : null;
 });
 
-export const accountRedirect = () => window.location.origin + "/account";
+export const accountRedirect = () => window.location.origin + href("account");
 
 // {ready, enabled, session, me, recovery, refreshMe, signOut, client}
 export function useAuth() {

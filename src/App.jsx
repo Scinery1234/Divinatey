@@ -2,12 +2,13 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { T, SCRIPT, GRAD } from "./theme.js";
 import { PAGES } from "./content.js";
 import { detectCrisis } from "../shared/safety.js";
-import { drawReading, interpret, askOracle, oracleErrorText, getSystems } from "./api.js";
+import { drawReading, interpret, askOracle, oracleErrorText, getSystems, getConfig } from "./api.js";
 import { PageOverlay, CrisisOverlay, CardMini, Divider, FooterLinks, VikLink } from "./components/common.jsx";
 import { ChartScreen, ChartNav, CHART_SYSTEMS } from "./components/ChartScreen.jsx";
 import { AccountScreen } from "./components/AccountScreen.jsx";
 import { ChatTeaser, SuggestedChips } from "./components/ChatTeaser.jsx";
 import { useAuth } from "./auth.js";
+import { PREVIEW, routePath, href } from "./preview.js";
 
 const now = () => new Date().toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"});
 const hexChar = n => n ? String.fromCodePoint(0x4DC0+n-1) : "?";
@@ -16,13 +17,13 @@ const INTERPRET_STEPS = ["consulting the I Ching ✦","drawing the Tarot ✦","w
 
 // Overlay pages live at /about, /terms and /privacy so they can be linked to.
 const pageFromPath = () => {
-  const p = window.location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase();
+  const p = routePath();
   return PAGES[p] ? p : null;
 };
 
 // Chart screens live at /gene-keys, /human-design, /natal and /vedic; the account at /account.
 const chartFromPath = () => {
-  const p = window.location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase();
+  const p = routePath();
   return p === "account" || CHART_SYSTEMS.some(c => c.id === p) ? p : null;
 };
 
@@ -39,7 +40,7 @@ function useChartRoute() {
     else if (chart === "account") document.title = "Account · Divinatey";
   }, [chart]);
   // Keeps the URL hash: sign-in and password-reset links arrive on /account with tokens in it.
-  const go = useCallback(function(id){ window.history.pushState(null, "", "/" + (id || "")); setChart(id); }, []);
+  const go = useCallback(function(id){ window.history.pushState(null, "", href(id)); setChart(id); }, []);
   return [chart, go];
 }
 
@@ -53,9 +54,22 @@ function usePage() {
   useEffect(function(){
     document.title = page ? PAGES[page].title + " · Divinatey" : "Divinatey — I Ching + Tarot";
   }, [page]);
-  const open = useCallback(function(p){ window.history.pushState(null, "", "/"+p); setPage(p); }, []);
-  const close = useCallback(function(){ window.history.pushState(null, "", "/"); setPage(null); }, []);
+  const open = useCallback(function(p){ window.history.pushState(null, "", href(p)); setPage(p); }, []);
+  const close = useCallback(function(){ window.history.pushState(null, "", href("")); setPage(null); }, []);
   return [page, open, close];
+}
+
+// Shown on every screen under /preview.
+function PreviewBanner() {
+  const [on, setOn] = useState(true);
+  useEffect(function(){ getConfig().then(function(c){ setOn(c.preview !== false); }).catch(function(){}); }, []);
+  return (
+    <div role="note" style={{flexShrink:0,background:GRAD,color:"#fff",fontSize:12,lineHeight:1.5,padding:"7px 16px",textAlign:"center",fontWeight:600,letterSpacing:0.2}}>
+      {on ? "Preview: paid features are unlocked for testing (no daily chart limit, chat with the oracle, saving when signed in). "
+          : "The paid preview is switched off right now. "}
+      <a href="/" style={{color:"#fff",textDecoration:"underline"}}>Go to the main site</a>
+    </div>
+  );
 }
 
 const primaryBtn = {background:GRAD,border:"none",borderRadius:999,color:"#fff",fontWeight:700,cursor:"pointer",letterSpacing:0.5};
@@ -76,7 +90,7 @@ export default function App() {
   const [systems, setSystems] = useState(null);
   const auth = useAuth();
   const [prefill, setPrefill] = useState(null);
-  const canChat = !!(auth.me && auth.me.plan === "paid");
+  const canChat = PREVIEW || !!(auth.me && auth.me.plan === "paid");
   const teaserRef = useRef(null);
   const [pulse, setPulse] = useState(false);
   const showTeaser = useCallback(function(){
@@ -87,7 +101,7 @@ export default function App() {
   const accountBtn = auth.enabled && <button onClick={function(){goChart("account");}} style={{fontSize:12,color:T.muted,background:"none",border:"1px solid "+T.border,borderRadius:999,padding:"5px 14px",cursor:"pointer",fontWeight:600}}>{auth.session ? "account" : "sign in"}</button>;
   useEffect(function(){ if (chart && chart !== "account" && !systems) getSystems().then(setSystems).catch(function(){}); }, [chart, systems]);
   // Closing an overlay page returns to the screen it was opened from.
-  const closePage = useCallback(function(){ closePageRaw(); if (chart) window.history.replaceState(null, "", "/" + chart); }, [closePageRaw, chart]);
+  const closePage = useCallback(function(){ closePageRaw(); if (chart) window.history.replaceState(null, "", href(chart)); }, [closePageRaw, chart]);
   const drawId = useRef(0);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
@@ -162,6 +176,7 @@ export default function App() {
   // ── CHARTS ──────────────────────────────────────────────────────────────────
   if (chart) return (
     <div className="app-shell">
+      {PREVIEW && <PreviewBanner/>}
       <header style={{padding:"12px 18px",borderBottom:"1px solid "+T.border,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexShrink:0,background:T.surface,flexWrap:"wrap"}}>
         <button className="link-btn" onClick={function(){goChart(null);}} style={{fontSize:22,color:T.text,letterSpacing:1,fontFamily:SCRIPT}}>Divinatey</button>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>{accountBtn}<button onClick={function(){setCrisis(true);}} aria-label="Crisis support" style={{fontSize:11,color:"#f87171",background:"rgba(248,113,113,0.1)",border:"1px solid rgba(248,113,113,0.3)",borderRadius:999,padding:"4px 10px",cursor:"pointer"}}>🆘</button></div>
@@ -182,6 +197,7 @@ export default function App() {
   // ── SPLASH ──────────────────────────────────────────────────────────────────
   if (phase==="splash") return (
     <div className="app-shell">
+      {PREVIEW && <PreviewBanner/>}
       {auth.enabled && <div style={{position:"absolute",top:"max(12px, env(safe-area-inset-top))",right:16}}>{accountBtn}</div>}
       <main style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 24px",textAlign:"center"}}>
         <h1 style={{fontSize:58,fontWeight:400,color:T.text,margin:"0 0 6px",lineHeight:1.1,letterSpacing:2,fontFamily:SCRIPT}}>Divinatey</h1>
@@ -207,6 +223,7 @@ export default function App() {
   // ── READING ─────────────────────────────────────────────────────────────────
   return (
     <div className="app-shell">
+      {PREVIEW && <PreviewBanner/>}
       <header style={{padding:"12px 18px",borderBottom:"1px solid "+T.border,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,background:T.surface}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <span style={{fontSize:22,fontWeight:400,color:T.text,letterSpacing:1,fontFamily:SCRIPT}}>Divinatey</span>
