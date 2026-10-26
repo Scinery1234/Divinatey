@@ -3,7 +3,8 @@ import fs from 'node:fs';
 const SYS=['genekeys','humandesign','natal','vedic'];
 // Words that belong to one system only. A prompt from any other system must not contain them.
 const OWN={
-  genekeys:[/Gene Key/i,/Siddhi/i,/Hologenetic/i,/Venus Sequence/i],
+  // (Not 'Siddhi': it's also one of the 27 Vedic yogas in the Panchang.)
+  genekeys:[/Gene Key/i,/Hologenetic/i,/Venus Sequence/i],
   humandesign:[/Human Design/i,/bodygraph/i,/Manifestor|Projector|Reflector/],
   natal:[/Placidus/i,/tropical/i,/Western astrolog/i],
   vedic:[/Jyotish/i,/nakshatra/i,/dasha/i,/Lahiri/i],
