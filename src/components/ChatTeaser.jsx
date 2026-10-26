@@ -1,16 +1,15 @@
 import { T, GRAD } from "../theme.js";
 
-// Follow-up questions written from the actual draw, so the locked chat
-// shows exactly what the person could ask next.
+// Follow-up questions shaped by the draw (changing lines or not) without
+// naming any card or hexagram, so nothing of the reading is given away.
 export function suggestedQuestions(r) {
-  const at = pos => (r.cards.find(c => c.pos === pos) || {}).name;
-  const qs = [];
-  const block = at("What's In the Way?");
-  if (block) qs.push(`What is ${block} trying to show me about what's in my way?`);
-  qs.push(r.rName ? `How does ${r.pName} turning into ${r.rName} apply to my situation?` : `How does ${r.pName} apply to my situation right now?`);
-  const step = at("What's the Next Step?");
-  if (step) qs.push(`What's one small step I could take this week, guided by ${step}?`);
-  return qs;
+  return [
+    "What is the card in “What's in the way?” trying to show me?",
+    r.changing && r.changing.length
+      ? "What do the changing lines say about where this is heading?"
+      : "How does my hexagram apply to my situation right now?",
+    "What's one small step I could take this week?",
+  ];
 }
 
 // For paid accounts: tap-to-ask chips before the first message.
@@ -30,7 +29,6 @@ const chip = { textAlign: "left", fontSize: 13, lineHeight: 1.5, padding: "10px 
 // For everyone else: the chat, visible but locked.
 export function ChatTeaser({ reading, auth, onSignIn, onAccount, pulse, innerRef }) {
   const qs = suggestedQuestions(reading);
-  const block = (reading.cards.find(c => c.pos === "What's In the Way?") || reading.cards[0]).name;
   const signedIn = auth && auth.session;
   const accountsOn = auth && auth.enabled;
   let cta;
@@ -58,7 +56,7 @@ export function ChatTeaser({ reading, auth, onSignIn, onAccount, pulse, innerRef
 
       <div style={{ position: "relative", marginBottom: 16 }} aria-hidden="true">
         <div style={{ maxWidth: "88%", padding: "12px 16px", borderRadius: "18px 18px 18px 4px", background: T.surface, border: "1px solid " + T.border, color: T.muted, fontSize: 14, lineHeight: 1.75, fontFamily: "Georgia,serif" }}>
-          {block} sitting in “What's in the way?” is
+          The card in “What's in the way?” is
           <span style={{ filter: "blur(5px)", userSelect: "none" }}> pointing to something you already sense but haven't said out loud. Notice where you hold back, and what it would cost you to stop.</span>
         </div>
       </div>
