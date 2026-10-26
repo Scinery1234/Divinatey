@@ -37,6 +37,8 @@ export const findPlaces = q => get("/api/places?q=" + encodeURIComponent(q));
 export const makeChart = body => call("POST", "/api/chart", body, true);
 export const askChart = (chart, history) =>
   call("POST", "/api/chart-chat", { chart, history: history.map(m => ({ role: m.role, text: m.text })) }, true);
+export const explainChart = (chart, tab, item) => call("POST", "/api/chart-explain", { chart, tab, item }, true);
+export const chartReading = (chart, section, technical) => call("POST", "/api/chart-reading", { chart, section, technical }, true);
 export const getConfig = () => get("/api/config");
 export const getMe = () => call("GET", "/api/me", undefined, true);
 export const saveChartSlot = (slot, body) => call("PUT", "/api/charts/" + slot, body, true);

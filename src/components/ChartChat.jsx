@@ -3,6 +3,16 @@ import { T, GRAD } from "../theme.js";
 import { askChart, oracleErrorText } from "../api.js";
 import { detectCrisis } from "../../shared/safety.js";
 import { ChatTeaser, SuggestedChips } from "./ChatTeaser.jsx";
+import { loadSession, saveSession } from "../session.js";
+
+// Conversations are kept per chart for this browser tab.
+const savedChat = key => ((loadSession().chats || {})[key]) || [];
+function storeChat(key, msgs) {
+  const chats = { ...(loadSession().chats || {}), [key]: msgs };
+  const keys = Object.keys(chats);
+  if (keys.length > 8) delete chats[keys[0]];
+  saveSession({ chats });
+}
 
 const QUESTIONS = [
   "What are my greatest strengths in this chart?",
@@ -16,13 +26,19 @@ const now = () => new Date().toLocaleTimeString("en-AU", { hour: "2-digit", minu
 // Chat about the chart on screen. `chart` is the request body that generated it;
 // a new chart starts a new conversation.
 export function ChartChat({ chart, canChat, auth, onSignIn, onAccount, onCrisis }) {
-  const [msgs, setMsgs] = useState([]);
+  const key = JSON.stringify(chart);
+  const [msgs, setMsgs] = useState(() => savedChat(key));
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const conv = useRef(0);
-  const key = JSON.stringify(chart);
-  useEffect(() => { conv.current++; setMsgs([]); setInput(""); setError(null); setBusy(false); }, [key]);
+  const shown = useRef(key);
+  useEffect(() => {
+    if (shown.current === key) return;               // first render already loaded this chart's chat
+    shown.current = key;
+    conv.current++; setMsgs(savedChat(key)); setInput(""); setError(null); setBusy(false);
+  }, [key]);
+  useEffect(() => { if (shown.current === key) storeChat(key, msgs); }, [key, msgs]);
 
   if (!canChat) return (
     <div style={{ marginTop: 20 }}>

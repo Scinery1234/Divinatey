@@ -125,3 +125,32 @@ test("chart chat: paid only, recalculated chart in the prompt, one system only",
   assert.equal((await post("/api/chart-chat", { chart: { ...chart, system: "tarot" }, history }, PAID)).status, 400);
   assert.equal((await post("/api/chart-chat", { chart, history: [] }, PAID)).status, 400);
 });
+
+test("chart explanations and readings: paid only, one prompt per item, cached", async () => {
+  const chart = { system: "natal", name: "Ava", date: "1990-07-15", time: "14:30", tz: "Australia/Sydney", lat: -33.87, lon: 151.21 };
+  assert.equal((await post("/api/chart-explain", { chart, tab: "planets", item: 1 }, "")).status, 401);
+  assert.equal((await post("/api/chart-explain", { chart, tab: "planets", item: 1 }, "test:u-free:f@example.com:free")).status, 403);
+
+  requests.length = 0;
+  const a = await post("/api/chart-explain", { chart, tab: "planets", item: 1 }, PAID);
+  assert.equal(a.status, 200);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].body.messages.length, 1);
+  const prompt = requests[0].body.messages[0].content;
+  assert.match(prompt, /Venus in 24°02' Gemini/);
+  assert.doesNotMatch(prompt, /Mercury in|Mars in/, "only this item's data");
+  const again = await post("/api/chart-explain", { chart: { ...chart, name: "Someone" }, tab: "planets", item: 1 }, PAID);
+  assert.equal(again.body.text, a.body.text);
+  assert.equal(requests.length, 1, "same prompt reuses the answer");
+
+  assert.equal((await post("/api/chart-explain", { chart, tab: "big3", item: "overview" }, PAID)).status, 200);
+  assert.equal((await post("/api/chart-explain", { chart, tab: "houses", item: "overview" }, PAID)).status, 400, "houses has no overview");
+  assert.equal((await post("/api/chart-explain", { chart, tab: "planets", item: 99 }, PAID)).status, 400);
+  assert.equal((await post("/api/chart-explain", { chart, tab: "nope", item: 0 }, PAID)).status, 400);
+
+  requests.length = 0;
+  const r = await post("/api/chart-reading", { chart, section: 2, technical: false }, PAID);
+  assert.equal(r.status, 200);
+  assert.match(requests[0].body.messages[0].content, /Transits to their chart/);
+  assert.equal((await post("/api/chart-reading", { chart, section: 4, technical: true }, PAID)).status, 400, "section 4 has no technical context");
+});

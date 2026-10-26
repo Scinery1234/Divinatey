@@ -4,11 +4,11 @@ import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 import { divineReading, isValidSeed } from "../shared/oracle.js";
 import { getQuantumSeed } from "./seed.js";
-import { interpretReading, chat, chartChat, OracleRefusal } from "./oracle-ai.js";
+import { interpretReading, chat, chartChat, writeText, OracleRefusal } from "./oracle-ai.js";
 import { rateLimit } from "./rate-limit.js";
 import { freeChartLimit } from "./free-limit.js";
 import { createStore, SLOTS } from "./store.js";
-import { searchPlaces, warmPlaces, chartChatContext, parseChartInput, renderChart, chartKey, systemMeta, ChartInputError } from "./astro.js";
+import { searchPlaces, warmPlaces, chartChatContext, guidePrompt, readingPrompt, parseChartInput, renderChart, chartKey, systemMeta, ChartInputError } from "./astro.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(here, "..", "dist");
@@ -249,6 +249,38 @@ app.post("/api/chart-chat", aiLimit, chatAccess, async (req, res) => {
     sendError(res, err);
   }
 });
+
+// ── Chart explanations and readings (paid / preview) ─────────────────────────
+// Each is one independent call built on the server from the recalculated
+// chart. Identical prompts within an hour reuse the answer, to save cost.
+const paidAccess = (req, res, next) => req.preview ? next()
+  : identify(req, res, () => requireUser(req, res, () => requirePaid(req, res, next)));
+const explainLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: Number(process.env.EXPLAIN_PER_10MIN) || 60 });
+const textCache = new Map();
+async function cachedText(prompt) {
+  const hit = textCache.get(prompt);
+  if (hit && Date.now() - hit.at < 3600e3) return hit.text;
+  const text = await writeText(prompt);
+  textCache.set(prompt, { text, at: Date.now() });
+  if (textCache.size > 500) textCache.delete(textCache.keys().next().value);
+  return text;
+}
+async function respondWithText(res, makePrompt) {
+  let prompt;
+  try { prompt = makePrompt(); }
+  catch (err) {
+    if (err instanceof ChartInputError) return res.status(400).json({ error: err.message });
+    return sendError(res, err);
+  }
+  try { res.json({ text: await cachedText(prompt) }); }
+  catch (err) { sendError(res, err); }
+}
+
+app.post("/api/chart-explain", explainLimit, paidAccess, (req, res) =>
+  respondWithText(res, () => guidePrompt(parseChartInput(req.body.chart), String(req.body.tab || ""), req.body.item)));
+
+app.post("/api/chart-reading", explainLimit, paidAccess, (req, res) =>
+  respondWithText(res, () => readingPrompt(parseChartInput(req.body.chart), req.body.section, !!req.body.technical)));
 
 app.use("/api", (req, res) => res.status(404).json({ error: "not found" }));
 

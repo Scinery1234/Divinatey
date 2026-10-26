@@ -4,6 +4,11 @@ import { findPlaces, makeChart, chartErrorText, saveChartSlot } from "../api.js"
 import { useAstroStyles } from "../astroStyles.js";
 import { PREVIEW } from "../preview.js";
 import { ChartChat } from "./ChartChat.jsx";
+import { GuidePanel, ChartReading } from "./ChartGuide.jsx";
+import { loadSession, saveSession } from "../session.js";
+
+// One chart = one system for one set of birth details.
+const chartKeyOf = b => b ? [b.system, b.date, b.time, b.tz, b.lat ?? "", b.lon ?? ""].join("|") : "";
 
 export const CHART_SYSTEMS = [
   { id: "gene-keys", label: "Gene Keys" },
@@ -96,45 +101,13 @@ function PlacePicker({ value, onPick }) {
   );
 }
 
-function ReferencePanel({ reference, onClose }) {
-  const [tab, setTab] = useState(0);
-  const t = reference[tab];
-  return (
-    <div role="dialog" aria-label="Chart reference" style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", justifyContent: "flex-end" }}>
-      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(30,22,48,.35)" }} />
-      <div className="astro" style={{ position: "relative", width: "min(520px,94vw)", height: "100%", overflowY: "auto", borderRadius: 0, background: "var(--bg)", padding: 0 }}>
-        <div style={{ position: "sticky", top: 0, background: "var(--tint2)", borderBottom: "2px solid var(--rule)", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <strong style={{ color: "var(--deep)" }}>✦ Chart reference</strong>
-          <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "var(--muted)" }}>×</button>
-        </div>
-        <div style={{ display: "flex", gap: 4, padding: "10px 14px 0", flexWrap: "wrap", borderBottom: "1px solid var(--rule)" }}>
-          {reference.map((r, i) => <button key={r.key} onClick={() => setTab(i)}
-            style={{ fontSize: 12, padding: "6px 10px", border: "1px solid var(--rule)", borderBottom: "none", borderRadius: "6px 6px 0 0", cursor: "pointer",
-              background: i === tab ? "var(--card)" : "var(--tint3)", color: i === tab ? "var(--deep)" : "var(--muted)", fontWeight: i === tab ? 700 : 400 }}>{r.icon} {r.name}</button>)}
-        </div>
-        <div style={{ padding: "14px 18px 40px" }}>
-          <p className="tagline">{t.blurb}</p>
-          {t.items.map((it, i) => (
-            <div key={i} className="gk-item"><div className="gk-item-h"><div style={{ minWidth: 0 }}>
-              <strong className="ttl">{it.title}</strong>{it.code && <> <span className="code" style={{ color: t.col }} dangerouslySetInnerHTML={{ __html: it.code }} /></>}
-              {it.sub && <div className="sub" dangerouslySetInnerHTML={{ __html: it.sub }} />}
-              {it.role && <div className="role">{it.role}</div>}
-            </div></div></div>
-          ))}
-          {!PREVIEW && <LockedAI compact />}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function LockedAI({ compact }) {
   return (
     <div style={{ margin: compact ? "16px 0 0" : "20px 0", padding: compact ? 14 : 18, borderRadius: 14, background: "linear-gradient(135deg,#ede8ff,#fce7f3)", border: "1px solid " + T.purple + "44", fontFamily: "system-ui,sans-serif" }}>
       <div style={{ fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: T.purple, fontWeight: 700, marginBottom: 6 }}>{PREVIEW ? "✦ Paid preview" : "✦ Paid plan"}</div>
       <p style={{ margin: 0, fontSize: 13, lineHeight: 1.7, color: T.muted }}>
-        {PREVIEW ? "No daily limit here, and two saved chart slots once you sign in. AI explanations of every placement, transit readings and chat are coming next."
-          : "Two saved chart slots and no daily limit. AI explanations of every placement, transit readings and chat are coming next."}
+        {PREVIEW ? "AI explanations of every placement, a transit reading, chat about your chart and no daily limit."
+          : "AI explanations of every placement, a transit reading, chat about your chart, two saved chart slots and no daily limit."}
       </p>
     </div>
   );
@@ -187,6 +160,17 @@ export function ChartScreen({ system, meta, auth, canChat, prefill, onPrefillUse
   const [showRef, setShowRef] = useState(false);
   const top = useRef(null);
   const lastBirth = useRef(null);    // the person on screen: switching system reuses their details
+  // Generated explanations and readings, per chart, kept for this browser tab.
+  const [allTexts, setAllTexts] = useState(() => loadSession().texts || {});
+  const ck = result ? chartKeyOf(result.body) : "";
+  const texts = allTexts[ck] || {};
+  const setText = (id, text) => setAllTexts(all => {
+    const next = { ...all, [ck]: { ...(all[ck] || {}), [id]: text } };
+    const keys = Object.keys(next);
+    if (keys.length > 8) delete next[keys[0]];        // keep the last few charts only
+    saveSession({ texts: next });
+    return next;
+  });
 
   const pickPlace = p => { setPlace(p); if (p) { setLat(String(p.lat)); setLon(String(p.lon)); } };
   const useNow = () => {
@@ -208,6 +192,7 @@ export function ChartScreen({ system, meta, auth, canChat, prefill, onPrefillUse
     try {
       const r = await makeChart(body);
       lastBirth.current = f;
+      saveSession({ person: f });
       setResult({ ...r, body: { ...body, place: f.place.label } });
       setTimeout(() => top.current && top.current.scrollIntoView({ behavior: "smooth" }), 50);
     } catch (err) {
@@ -232,7 +217,17 @@ export function ChartScreen({ system, meta, auth, canChat, prefill, onPrefillUse
   // The free limit counts people, so this never uses up another free chart.
   const firstRun = useRef(true);
   useEffect(() => {
-    if (firstRun.current) { firstRun.current = false; return; }
+    if (firstRun.current) {
+      firstRun.current = false;
+      // Coming back to the page (or refreshing): bring back the person on screen.
+      const person = !prefill && loadSession().person;
+      if (person && person.date && person.place) {
+        setName(person.name || ""); setDate(person.date); setTime(person.time); setPlace(person.place);
+        setLat(person.lat == null ? "" : String(person.lat)); setLon(person.lon == null ? "" : String(person.lon));
+        generate(person);
+      }
+      return;
+    }
     setResult(null); setError(null); setShowRef(false);
     if (prefill && prefill.system === system) return;
     if (lastBirth.current) generate(lastBirth.current);
@@ -245,18 +240,19 @@ export function ChartScreen({ system, meta, auth, canChat, prefill, onPrefillUse
     return (
       <div ref={top}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, margin: "4px 0 12px", flexWrap: "wrap" }}>
-          <button onClick={() => { lastBirth.current = null; setResult(null); }} style={{ fontSize: 12, color: T.muted, background: "none", border: "1px solid " + T.border, borderRadius: 999, padding: "6px 14px", cursor: "pointer", fontWeight: 600 }}>← someone else</button>
+          <button onClick={() => { lastBirth.current = null; saveSession({ person: null }); setResult(null); }} style={{ fontSize: 12, color: T.muted, background: "none", border: "1px solid " + T.border, borderRadius: 999, padding: "6px 14px", cursor: "pointer", fontWeight: 600 }}>← someone else</button>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
             {result.quota && <span style={{ fontSize: 11, color: T.dim }}>free today: {result.quota.used} of {result.quota.max} people</span>}
             <SaveBar auth={auth} body={result.body} onSignIn={onSignIn} />
-            <button onClick={() => setShowRef(true)} style={{ ...primaryBtn, padding: "7px 16px", fontSize: 12 }}>✦ chart reference</button>
+            <button onClick={() => setShowRef(true)} style={{ ...primaryBtn, padding: "7px 16px", fontSize: 12 }}>{canChat ? "✦ chart guide" : "✦ chart reference"}</button>
           </div>
         </div>
         <p style={{ fontSize: 12, color: T.dim, margin: "-4px 0 10px", textAlign: "center" }}>Pick another system above to see {result.body && result.body.name ? result.body.name + "'s" : "this person's"} chart there. It opens straight away and doesn't use another free chart.</p>
         <div className="astro" style={vars} dangerouslySetInnerHTML={{ __html: result.html }} />
-        {!canChat && <LockedAI />}
+        {canChat ? <ChartReading reading={result.reading} chart={result.body} texts={texts} setText={setText} /> : <LockedAI />}
         <ChartChat chart={result.body} canChat={canChat} auth={auth} onSignIn={onSignIn} onAccount={onAccount || onSignIn} onCrisis={onCrisis} />
-        {showRef && <ReferencePanel reference={result.reference} onClose={() => setShowRef(false)} />}
+        {showRef && <GuidePanel reference={result.reference} chart={result.body} canExplain={canChat} texts={texts} setText={setText}
+          lockedCard={!PREVIEW && <LockedAI compact />} onClose={() => setShowRef(false)} />}
       </div>
     );
   }

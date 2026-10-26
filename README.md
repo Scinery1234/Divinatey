@@ -57,6 +57,7 @@ If the app runs behind a reverse proxy or load balancer, set `TRUST_PROXY=1` so 
 | `FREE_LIMIT_SECRET` | (random per start) | Key for hashing IPs in the free chart count |
 | `PAID_PREVIEW` | on | Set to `0` to close the paid preview at `/preview` |
 | `PREVIEW_CHAT_PER_10MIN` | `20` | Chat messages per IP in the preview |
+| `EXPLAIN_PER_10MIN` | `60` | Chart explanations and reading sections per IP (paid and preview) |
 
 If a request is declined on policy grounds, it's automatically retried on Anthropic's recommended fallback model (`fallbacks: "default"`).
 
@@ -72,6 +73,12 @@ Accounts are optional: drawing and free charts work without them. With Supabase 
 The browser gets only the anon key (from `GET /api/config`) and uses it just to sign in. Every read and write of profiles, saved charts and free-tier usage goes through this server with the service-role key, which checks the plan; row-level security blocks direct writes. Plans are set in `profiles.plan` (`free` or `paid`); Stripe will update it in the next phase.
 
 Routes: `GET /api/me`, `PUT /api/charts/:slot` (paid, slots 1–2), `DELETE /api/charts/:slot`. Paid accounts skip the free daily chart limit.
+
+## Paid chart features
+
+Paid accounts (and the preview) get, on every chart: a **chart guide** side panel where each placement, centre, house or graha has *Explain →* and each section has an overview; a four-part **reading** of the chart against today's sky; and **chat** about the chart. Routes: `POST /api/chart-explain` `{chart, tab, item | "overview"}`, `POST /api/chart-reading` `{chart, section, technical}`, `POST /api/chart-chat` `{chart, history}`. The server recalculates the chart from the birth details and builds each prompt from that one item's or section's data (the same prompts as the standalone pages), so no reading sees another. Identical prompts within an hour reuse the answer.
+
+The browser keeps the latest reading, the chart on screen, chats and explanations in session storage for the tab, so leaving a page or refreshing doesn't lose them.
 
 ## Paid preview
 

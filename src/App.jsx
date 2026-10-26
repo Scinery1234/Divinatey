@@ -9,6 +9,7 @@ import { AccountScreen } from "./components/AccountScreen.jsx";
 import { ChatTeaser, SuggestedChips } from "./components/ChatTeaser.jsx";
 import { useAuth } from "./auth.js";
 import { PREVIEW, routePath, href } from "./preview.js";
+import { loadSession, saveSession } from "./session.js";
 
 const now = () => new Date().toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"});
 const hexChar = n => n ? String.fromCodePoint(0x4DC0+n-1) : "?";
@@ -105,6 +106,18 @@ export default function App() {
   const drawId = useRef(0);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
+
+  // Keep the last reading (and its chat) for this tab, so leaving and coming back,
+  // or refreshing, shows it again.
+  const restored = useRef(false);
+  useEffect(function(){
+    const saved = loadSession().reading;
+    if (saved && saved.draw) { setDraw(saved.draw); setInterp(saved.interp || null); setMsgs(saved.msgs || []); setPhase("ready"); }
+    restored.current = true;
+  }, []);
+  useEffect(function(){
+    if (restored.current && phase === "ready" && draw) saveSession({ reading: { draw, interp, msgs } });
+  }, [phase, draw, interp, msgs]);
 
   useEffect(function(){ bottomRef.current && bottomRef.current.scrollIntoView({behavior:"smooth"}); }, [msgs, chatLoading, interp]);
 

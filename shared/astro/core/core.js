@@ -419,6 +419,7 @@ function pageHTML(c){
 // Fixed reference text for each guide item (titles and roles; no prompts, no AI).
 function referenceData(c){
   return SYSTEM.guide.tabs.map(t=>({key:t.key,name:t.name,icon:t.icon,col:t.col,blurb:t.blurb,
+    overview:!!t.overview,overviewTitle:t.overviewTitle||t.name+' — Overview',
     items:t.items(c).map(it=>({title:it.title,code:it.code||'',sub:it.sub||'',role:it.role||''}))}));
 }
 

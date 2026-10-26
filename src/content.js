@@ -30,7 +30,7 @@ export const PAGES = {
       {h:"Quantum seed", p:"The random seed for each reading is derived from the current timestamp and a call to ANU's Quantum Random Number Generator API. No personal data is transmitted — only a request for random bytes is made."},
       {h:"Birth charts", p:"The birth date, time and place you enter are sent to our server only to calculate your chart. Unless you save the chart to your account, they are not stored and are discarded as soon as the chart is sent back to you. The name field is optional and only labels the chart."},
       {h:"Abuse protection", p:"To keep the service available, our server briefly counts requests per IP address in memory to limit abuse. To apply the free chart limit, it also keeps a keyed one-way hash of your IP address and of each set of birth details used that day, so neither can be read back. Request counts expire within minutes; the daily chart records are deleted the next day."},
-      {h:"Local storage", p:"If you sign in, your browser's local storage keeps your sign-in session so you stay signed in. Signing out removes it. Without an account, Divinatey writes nothing to local storage."},
+      {h:"Browser storage", p:"While a tab is open, your browser's session storage keeps your latest reading, the chart on screen (with the birth details used), and any chats and explanations, so they're still there if you leave the page or refresh. It stays in your browser and is cleared when you close the tab. If you sign in, local storage also keeps your sign-in session so you stay signed in; signing out removes it."},
       {h:"Contact", p:"For privacy enquiries, contact Vikashan via the website."},
     ]
   }

@@ -71,20 +71,51 @@ export function parseChartInput(body) {
 // four systems. (Neither the system, the name nor fine-tuned coordinates count.)
 export const chartKey = inp => [inp.date, inp.time, inp.tz].join("|");
 
-export function renderChart(inp) {
+function computeChart(inp) {
   const engine = engines[inp.system];
   const utc = engine.toUTC(inp.date, inp.time, inp.tz);
   if (!utc) throw new ChartInputError("invalid time");
   const full = { ...inp, utc };
   const chart = engine.SYSTEM.compute(full);
   chart.input = full;
+  return { engine, chart };
+}
+
+export function renderChart(inp) {
+  const { engine, chart } = computeChart(inp);
+  const R = engine.SYSTEM.reading;
   return {
     system: inp.system,
     title: engine.SYSTEM.title,
     accent: engine.SYSTEM.accent || {},
     html: engine.chartBodyHTML(chart),
     reference: engine.referenceData(chart),
+    reading: { title: R.title, sections: R.sections.map(s => ({ id: s.id, icon: s.icon, title: s.title, desc: s.desc, technical: !!s.astroPrompt })) },
   };
+}
+
+// The prompt for one guide item (or a tab's overview), built from that item's
+// own data only, exactly as the standalone pages do.
+export function guidePrompt(inp, tabKey, item) {
+  const { engine, chart } = computeChart(inp);
+  const tab = engine.SYSTEM.guide.tabs.find(t => t.key === tabKey);
+  if (!tab) throw new ChartInputError("unknown section");
+  if (item === "overview") {
+    if (!tab.overview) throw new ChartInputError("unknown section");
+    return tab.overview(chart);
+  }
+  const it = tab.items(chart)[Number(item)];
+  if (!Number.isInteger(Number(item)) || !it) throw new ChartInputError("unknown item");
+  return it.prompt;
+}
+
+// The prompt for one reading section, from the chart and today's sky only.
+export function readingPrompt(inp, sectionId, technical) {
+  const { engine, chart } = computeChart(inp);
+  const sec = engine.SYSTEM.reading.sections.find(s => s.id === Number(sectionId));
+  if (!sec || (technical && !sec.astroPrompt)) throw new ChartInputError("unknown section");
+  const data = engine.SYSTEM.reading.data(chart);
+  return technical ? sec.astroPrompt(data) : sec.prompt(data);
 }
 
 // Each system's chat speaks only its own language; nothing from another system is included.

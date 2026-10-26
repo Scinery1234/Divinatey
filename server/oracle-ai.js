@@ -118,3 +118,12 @@ export function chartChat(ctx, history) {
     "and encourage them to contact Lifeline on 13 11 14 or emergency services on 000.";
   return ask({ system, messages: history.map(m => ({ role: m.role, content: m.text })) });
 }
+
+// One standalone piece of writing from a single prompt: a chart explanation or
+// reading section. No history and nothing shared between calls.
+export function writeText(prompt) {
+  return ask({
+    system: "Write in plain text without markdown, headings or bullet points. Keep to the length asked for.",
+    messages: [{ role: "user", content: prompt }],
+  });
+}
