@@ -63,7 +63,7 @@ function sendError(res, err) {
   return res.status(500).json({ error: "internal" });
 }
 
-app.get("/api/health", (req, res) => res.json({ ok: true }));
+app.get("/api/health", (req, res) => res.json({ ok: true, charts: true }));
 
 app.post("/api/draw", async (req, res) => {
   const { seed, source } = await getQuantumSeed();
@@ -126,6 +126,8 @@ async function identifyUser(req, res, next, optional) {
     req.user = { id: user.id, email: user.email, plan: profile.plan === "paid" || req.preview ? "paid" : "free" };
     next();
   } catch (err) {
+    // On routes that work signed out, an account-service failure shouldn't block the request.
+    if (optional) { console.error("Account lookup failed; continuing signed out:", err.message || err); return next(); }
     sendError(res, err);
   }
 }
@@ -211,12 +213,15 @@ app.post("/api/chart", chartLimit, identifyOptional, async (req, res) => {
   try {
     const paid = req.preview || (req.user && req.user.plan === "paid");
     const key = chartKey(inp);
+    // If the usage store fails (e.g. Supabase tables missing), log it and let
+    // the chart through rather than failing every free chart.
+    const usage = async fn => { try { return await fn(); } catch (err) { console.error("Free chart usage store failed:", err.message || err); return null; } };
     if (!paid) {
-      const quota = await freeCharts.check(req.ip, key);
-      if (!quota.ok) return res.status(429).json({ error: "free_limit", used: quota.used, max: quota.max });
+      const quota = await usage(() => freeCharts.check(req.ip, key));
+      if (quota && !quota.ok) return res.status(429).json({ error: "free_limit", used: quota.used, max: quota.max });
     }
     const chart = renderChart(inp);
-    res.json({ ...chart, quota: paid ? null : await freeCharts.record(req.ip, key) });
+    res.json({ ...chart, quota: paid ? null : await usage(() => freeCharts.record(req.ip, key)) });
   } catch (err) {
     if (err instanceof ChartInputError) return res.status(400).json({ error: err.message });
     sendError(res, err);

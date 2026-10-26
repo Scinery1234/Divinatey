@@ -83,3 +83,7 @@ test("paid preview: anyone can chat and skip the chart limit, only with the head
   assert.equal((await pv("PUT", "/api/charts/1", natal, FREE)).status, 200);
   assert.equal((await pv("PUT", "/api/charts/1", natal)).status, 401, "saving still needs an account");
 });
+
+test("health check reports the chart server", async () => {
+  assert.deepEqual((await call("GET", "/api/health")).body, { ok: true, charts: true });
+});

@@ -54,7 +54,7 @@ function PlacePicker({ value, onPick }) {
       setStatus("searching"); setOpen(true);
       findPlaces(text)
         .then(r => { if (id === req.current) { setList(r); setActive(-1); setStatus("done"); } })
-        .catch(() => { if (id === req.current) { setList([]); setStatus("error"); } });
+        .catch(e => { if (id === req.current) { setList([]); setStatus(e && e.code === "no_server" ? "no_server" : "error"); } });
     }, 150);
     return () => clearTimeout(t);
   }, [q, value]);
@@ -62,7 +62,8 @@ function PlacePicker({ value, onPick }) {
   const pick = p => { onPick(p); setOpen(false); setList([]); setStatus("idle"); };
   const message = status === "searching" && !list.length ? "Searching places…"
     : status === "done" && !list.length ? "No places match. Try a nearby town, or check the spelling."
-    : status === "error" ? "Couldn't search places just now. Try again in a moment." : null;
+    : status === "error" ? "Couldn't search places just now. Try again in a moment."
+    : status === "no_server" ? "Place search isn't available: this site is running without Divinatey's server. (Error: no_server)" : null;
   return (
     <div style={{ position: "relative" }}>
       <input id="place" style={field} value={q} placeholder="Start typing a town or city…" autoComplete="off"

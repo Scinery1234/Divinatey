@@ -13,9 +13,14 @@ async function call(method, path, body, withAuth) {
   if (PREVIEW) headers["X-Paid-Preview"] = "1";
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (withAuth) { const t = await tokenSource(); if (t) headers.Authorization = "Bearer " + t; }
-  const res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error);
+  let res;
+  try { res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }); }
+  catch (e) { throw new ApiError(0, "network"); }
+  const isJson = (res.headers.get("content-type") || "").includes("application/json");
+  const data = isJson ? await res.json().catch(() => ({})) : {};
+  if (!res.ok) throw new ApiError(res.status, data.error || (isJson ? undefined : "no_server"));
+  // A web page instead of JSON means the site is being served without its API server.
+  if (!isJson) throw new ApiError(res.status, "no_server");
   return data;
 }
 const post = (path, body) => call("POST", path, body || {}, false);
@@ -42,6 +47,10 @@ export function chartErrorText(err) {
     if (err.code === "invalid location") return "Choose your birth place from the list so we know its coordinates.";
     if (err.code === "invalid timezone") return "Choose your birth place from the list so we know its timezone.";
     if (err.code === "invalid date" || err.code === "invalid time") return "Check the birth date and time.";
+    if (err.code === "network") return "Couldn't reach Divinatey. Check your connection, then try again.";
+    if (err.code === "no_server") return "The chart service isn't running on this site right now: the pages are being served without Divinatey's server. (Error: no_server)";
+    if (err.status >= 500) return "Something went wrong on our side while calculating this chart. Try again in a moment. (Error " + err.status + (err.code ? ": " + err.code : "") + ")";
+    return "The chart couldn't be calculated. (Error " + err.status + (err.code ? ": " + err.code : "") + ")";
   }
   return "The chart couldn't be calculated just now. Try again in a moment.";
 }
