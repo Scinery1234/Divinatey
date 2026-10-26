@@ -7,6 +7,7 @@ import { getQuantumSeed } from "./seed.js";
 import { interpretReading, chat, OracleRefusal } from "./oracle-ai.js";
 import { rateLimit } from "./rate-limit.js";
 import { freeChartLimit } from "./free-limit.js";
+import { createStore, SLOTS } from "./store.js";
 import { searchPlaces, parseChartInput, renderChart, chartKey, systemMeta, ChartInputError } from "./astro.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -93,10 +94,90 @@ app.post("/api/chat", aiLimit, async (req, res) => {
   }
 });
 
-// ── Charts (free tier: no AI) ────────────────────────────────────────────────
+// ── Accounts ─────────────────────────────────────────────────────────────────
+const store = createStore();
+if (store.accounts && !process.env.AUTH_TEST_TOKENS && !process.env.FREE_LIMIT_SECRET)
+  console.warn("FREE_LIMIT_SECRET is not set: free chart counts reset on every restart.");
+const accountLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 120 });
+
+// Sets req.user ({id, email, plan}) when the request carries a valid session token.
+// identifyOptional treats a missing or stale token as signed out instead of failing.
+const identify = (req, res, next) => identifyUser(req, res, next, false);
+const identifyOptional = (req, res, next) => identifyUser(req, res, next, true);
+async function identifyUser(req, res, next, optional) {
+  const h = req.get("authorization") || "";
+  if (!h.startsWith("Bearer ")) return next();
+  try {
+    const user = await store.getUser(h.slice(7));
+    if (!user) return optional ? next() : res.status(401).json({ error: "signed_out" });
+    const profile = await store.getProfile(user.id, user);
+    req.user = { id: user.id, email: user.email, plan: profile.plan === "paid" ? "paid" : "free" };
+    next();
+  } catch (err) {
+    sendError(res, err);
+  }
+}
+const requireUser = (req, res, next) => req.user ? next() : res.status(401).json({ error: "signed_out" });
+const requirePaid = (req, res, next) => req.user.plan === "paid" ? next() : res.status(403).json({ error: "paid_required" });
+const slotParam = (req, res) => {
+  const slot = Number(req.params.slot);
+  if (!SLOTS.includes(slot)) { res.status(400).json({ error: "invalid slot" }); return null; }
+  return slot;
+};
+
+// The anon key is public by design: the browser needs it to sign in.
+app.get("/api/config", (req, res) => {
+  const url = process.env.SUPABASE_URL, anonKey = process.env.SUPABASE_ANON_KEY;
+  res.json({ auth: url && anonKey ? { url, anonKey } : null });
+});
+
+app.get("/api/me", accountLimit, identify, requireUser, async (req, res) => {
+  try {
+    res.json({ email: req.user.email, plan: req.user.plan, slots: SLOTS.length, charts: await store.listCharts(req.user.id) });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+app.put("/api/charts/:slot", accountLimit, identify, requireUser, requirePaid, async (req, res) => {
+  const slot = slotParam(req, res);
+  if (!slot) return;
+  let inp;
+  try {
+    inp = parseChartInput(req.body);
+  } catch (err) {
+    if (err instanceof ChartInputError) return res.status(400).json({ error: err.message });
+    return sendError(res, err);
+  }
+  const birth = { date: inp.date, time: inp.time, tz: inp.tz, place: String(req.body.place || "").slice(0, 120) };
+  if ("lat" in inp) { birth.lat = inp.lat; birth.lon = inp.lon; }
+  try {
+    await store.saveChart(req.user.id, slot, { system: inp.system, name: inp.name, birth });
+    res.json({ charts: await store.listCharts(req.user.id) });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+app.delete("/api/charts/:slot", accountLimit, identify, requireUser, async (req, res) => {
+  const slot = slotParam(req, res);
+  if (!slot) return;
+  try {
+    await store.deleteChart(req.user.id, slot);
+    res.json({ charts: await store.listCharts(req.user.id) });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// ── Charts (no AI) ───────────────────────────────────────────────────────────
 const placeLimit = rateLimit({ windowMs: 60 * 1000, max: 120 });
 const chartLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 60 });
-const freeCharts = freeChartLimit({ max: Number(process.env.FREE_CHARTS_PER_DAY) || 2 });
+const freeCharts = freeChartLimit({
+  max: Number(process.env.FREE_CHARTS_PER_DAY) || 2,
+  store,
+  secret: process.env.FREE_LIMIT_SECRET,
+});
 
 app.get("/api/systems", (req, res) => res.json(systemMeta()));
 
@@ -105,20 +186,24 @@ app.get("/api/places", placeLimit, (req, res) => {
   res.json(q.length < 2 ? [] : searchPlaces(q));
 });
 
-app.post("/api/chart", chartLimit, (req, res) => {
+// Free: FREE_CHARTS_PER_DAY different charts per IP per day. Paid: no daily limit.
+app.post("/api/chart", chartLimit, identifyOptional, async (req, res) => {
   let inp;
   try {
     inp = parseChartInput(req.body);
   } catch (err) {
     if (err instanceof ChartInputError) return res.status(400).json({ error: err.message });
-    throw err;
+    return sendError(res, err);
   }
-  const key = chartKey(inp);
-  const quota = freeCharts.check(req.ip, key);
-  if (!quota.ok) return res.status(429).json({ error: "free_limit", used: quota.used, max: quota.max });
   try {
+    const paid = req.user && req.user.plan === "paid";
+    const key = chartKey(inp);
+    if (!paid) {
+      const quota = await freeCharts.check(req.ip, key);
+      if (!quota.ok) return res.status(429).json({ error: "free_limit", used: quota.used, max: quota.max });
+    }
     const chart = renderChart(inp);
-    res.json({ ...chart, quota: freeCharts.record(req.ip, key) });
+    res.json({ ...chart, quota: paid ? null : await freeCharts.record(req.ip, key) });
   } catch (err) {
     if (err instanceof ChartInputError) return res.status(400).json({ error: err.message });
     sendError(res, err);

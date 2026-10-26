@@ -24,13 +24,13 @@ export const PAGES = {
   privacy: {
     title: "Privacy Policy",
     sections: [
-      {h:"No accounts, no tracking", p:"Divinatey does not require an account. We do not collect your name, email address, location, or any identifying information. There are no analytics trackers or advertising cookies."},
+      {h:"Accounts are optional", p:"Drawing a reading and opening free charts need no account. If you create one, we keep your email address, your plan, and up to two saved charts (each chart's label, birth date, time and place) so you can return to them. Removing a saved chart deletes it. Sign-in is handled by Supabase, which stores your email and a password hash on our behalf. There are no analytics trackers or advertising cookies."},
       {h:"Your conversations", p:"Your messages pass through Vikashan's server only to be forwarded to the AI, and are never logged or stored there. Once you close the tab, your session is gone. We do not review your readings or chat messages."},
       {h:"AI processing", p:"Your messages are sent to Anthropic's Claude API for processing. Anthropic may retain API data in accordance with their privacy policy. We recommend not sharing sensitive personal information in your queries."},
       {h:"Quantum seed", p:"The random seed for each reading is derived from the current timestamp and a call to ANU's Quantum Random Number Generator API. No personal data is transmitted — only a request for random bytes is made."},
-      {h:"Birth charts", p:"The birth date, time and place you enter are sent to our server only to calculate your chart. They are not stored and are discarded as soon as the chart is sent back to you. The name field is optional and only labels the chart."},
-      {h:"Abuse protection", p:"To keep the service available, our server briefly counts requests per IP address in memory to limit abuse. To apply the free chart limit, it also keeps a salted, one-way hash of your IP address with a count of the charts opened that day. None of this is written to disk; request counts expire within minutes and the daily chart counts are cleared each day."},
-      {h:"Local storage", p:"Divinatey does not write anything to your browser's local storage. Nothing persists between sessions."},
+      {h:"Birth charts", p:"The birth date, time and place you enter are sent to our server only to calculate your chart. Unless you save the chart to your account, they are not stored and are discarded as soon as the chart is sent back to you. The name field is optional and only labels the chart."},
+      {h:"Abuse protection", p:"To keep the service available, our server briefly counts requests per IP address in memory to limit abuse. To apply the free chart limit, it also keeps a keyed one-way hash of your IP address and of each chart opened that day, so neither can be read back. Request counts expire within minutes; the daily chart records are deleted the next day."},
+      {h:"Local storage", p:"If you sign in, your browser's local storage keeps your sign-in session so you stay signed in. Signing out removes it. Without an account, Divinatey writes nothing to local storage."},
       {h:"Contact", p:"For privacy enquiries, contact Vikashan via the website."},
     ]
   }

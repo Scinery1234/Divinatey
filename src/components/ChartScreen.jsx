@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { T, GRAD } from "../theme.js";
-import { findPlaces, makeChart, chartErrorText } from "../api.js";
+import { findPlaces, makeChart, chartErrorText, saveChartSlot } from "../api.js";
 import { useAstroStyles } from "../astroStyles.js";
 
 export const CHART_SYSTEMS = [
@@ -117,15 +117,45 @@ function ReferencePanel({ reference, onClose }) {
 function LockedAI({ compact }) {
   return (
     <div style={{ margin: compact ? "16px 0 0" : "20px 0", padding: compact ? 14 : 18, borderRadius: 14, background: "linear-gradient(135deg,#ede8ff,#fce7f3)", border: "1px solid " + T.purple + "44", fontFamily: "system-ui,sans-serif" }}>
-      <div style={{ fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: T.purple, fontWeight: 700, marginBottom: 6 }}>✦ Paid plan · coming soon</div>
+      <div style={{ fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: T.purple, fontWeight: 700, marginBottom: 6 }}>✦ Paid plan</div>
       <p style={{ margin: 0, fontSize: 13, lineHeight: 1.7, color: T.muted }}>
-        AI explanations of every placement, transit readings, chat, a second chart slot and saved charts.
+        Two saved chart slots and no daily limit. AI explanations of every placement, transit readings and chat are coming next.
       </p>
     </div>
   );
 }
 
-export function ChartScreen({ system, meta }) {
+// Save the chart on screen to one of the paid plan's two slots.
+function SaveBar({ auth, body, onSignIn }) {
+  const [busy, setBusy] = useState(0);
+  const [note, setNote] = useState(null);
+  if (!auth || !auth.enabled) return null;
+  const me = auth.me;
+  const small = { fontSize: 12, borderRadius: 999, padding: "6px 14px", cursor: "pointer", fontWeight: 600 };
+  if (!auth.session) return <button onClick={onSignIn} style={{ ...small, color: T.muted, background: "none", border: "1px solid " + T.border }}>sign in to save</button>;
+  if (!me) return null;
+  if (me.plan !== "paid") return <span style={{ fontSize: 11, color: T.dim }}>Saving charts is part of the paid plan</span>;
+  const bySlot = Object.fromEntries((me.charts || []).map(c => [c.slot, c]));
+  const save = async slot => {
+    setBusy(slot); setNote(null);
+    try { await saveChartSlot(slot, body); await auth.refreshMe(); setNote("Saved to slot " + slot); }
+    catch (e) { setNote("Couldn't save. Try again."); }
+    setBusy(0);
+  };
+  return (
+    <span style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+      {[1, 2].map(slot => {
+        const c = bySlot[slot];
+        return <button key={slot} disabled={!!busy} onClick={() => save(slot)} title={c ? "Replaces " + (c.name || "the chart") + " in slot " + slot : "Slot " + slot + " is empty"}
+          style={{ ...small, color: T.purple, background: "none", border: "1px solid " + T.purple + "66" }}>
+          {busy === slot ? "saving…" : "save to slot " + slot + (c ? " (replace)" : "")}</button>;
+      })}
+      {note && <span role="status" style={{ fontSize: 11, color: T.cyan }}>{note}</span>}
+    </span>
+  );
+}
+
+export function ChartScreen({ system, meta, auth, prefill, onPrefillUsed, onOpenSaved, onSignIn }) {
   useAstroStyles();
   const info = meta && meta[system];
   const needsLocation = info ? info.needsLocation : system === "natal" || system === "vedic";
@@ -151,25 +181,39 @@ export function ChartScreen({ system, meta }) {
     if (!place) setPlace({ label: "Here (" + tz + ")", tz, lat: NaN, lon: NaN });
   };
 
-  const submit = async e => {
-    e.preventDefault();
+  const generate = async f => {
     setError(null);
-    if (!date) return setError("Enter a birth date.");
-    if (!place) return setError("Choose a birth place from the list.");
-    const body = { system, name, date, time, tz: place.tz };
+    if (!f.date) return setError("Enter a birth date.");
+    if (!f.place) return setError("Choose a birth place from the list.");
+    const body = { system, name: f.name, date: f.date, time: f.time, tz: f.place.tz };
     if (needsLocation) {
-      body.lat = parseFloat(lat); body.lon = parseFloat(lon);
+      body.lat = parseFloat(f.lat); body.lon = parseFloat(f.lon);
       if (!isFinite(body.lat) || !isFinite(body.lon)) return setError("Choose a birth place from the list, or enter its latitude and longitude.");
     }
     setBusy(true);
     try {
-      setResult(await makeChart(body));
+      const r = await makeChart(body);
+      setResult({ ...r, body: { ...body, place: f.place.label } });
       setTimeout(() => top.current && top.current.scrollIntoView({ behavior: "smooth" }), 50);
     } catch (err) {
       setError(chartErrorText(err));
     }
     setBusy(false);
   };
+  const submit = e => { e.preventDefault(); generate({ name, date, time, place, lat, lon }); };
+
+  // Opening a saved chart: fill the form from it and generate straight away.
+  useEffect(() => {
+    if (!prefill || prefill.system !== system) return;
+    const b = prefill.birth;
+    const p = { label: b.place || b.tz, tz: b.tz, lat: b.lat ?? NaN, lon: b.lon ?? NaN };
+    const f = { name: prefill.name || "", date: b.date, time: b.time, place: p, lat: b.lat ?? "", lon: b.lon ?? "" };
+    setName(f.name); setDate(f.date); setTime(f.time); setPlace(p); setLat(String(f.lat)); setLon(String(f.lon));
+    onPrefillUsed && onPrefillUsed();
+    generate(f);
+  }, [prefill, system]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saved = auth && auth.me && auth.me.plan === "paid" ? (auth.me.charts || []) : [];
 
   if (result) {
     const vars = Object.fromEntries(Object.entries(result.accent || {}).map(([k, v]) => ["--" + k, v]));
@@ -177,8 +221,9 @@ export function ChartScreen({ system, meta }) {
       <div ref={top}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, margin: "4px 0 12px", flexWrap: "wrap" }}>
           <button onClick={() => setResult(null)} style={{ fontSize: 12, color: T.muted, background: "none", border: "1px solid " + T.border, borderRadius: 999, padding: "6px 14px", cursor: "pointer", fontWeight: 600 }}>← new chart</button>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
             {result.quota && <span style={{ fontSize: 11, color: T.dim }}>{result.quota.used} of {result.quota.max} free charts today</span>}
+            <SaveBar auth={auth} body={result.body} onSignIn={onSignIn} />
             <button onClick={() => setShowRef(true)} style={{ ...primaryBtn, padding: "7px 16px", fontSize: 12 }}>✦ chart reference</button>
           </div>
         </div>
@@ -193,6 +238,17 @@ export function ChartScreen({ system, meta }) {
     <form onSubmit={submit} noValidate style={{ background: T.surface, border: "1px solid " + T.border, borderRadius: 16, padding: "22px 20px", marginTop: 8 }}>
       <h2 style={{ fontFamily: "Georgia,serif", fontWeight: 400, fontSize: 22, margin: "0 0 4px", color: T.text }}>{info ? info.title : ""}</h2>
       <p style={{ fontSize: 13, color: T.muted, margin: "0 0 18px", lineHeight: 1.6 }}>{info ? info.sub : ""}</p>
+      {saved.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", margin: "-6px 0 16px" }}>
+          <span style={{ fontSize: 11, color: T.dim }}>Your saved charts:</span>
+          {saved.map(c => {
+            const sys = CHART_SYSTEMS.find(x => x.id === c.system);
+            return <button key={c.slot} type="button" onClick={() => onOpenSaved && onOpenSaved(c)}
+              style={{ fontSize: 12, padding: "5px 12px", borderRadius: 999, cursor: "pointer", border: "1px solid " + T.border, background: T.bg, color: T.text }}>
+              {(c.name || "Slot " + c.slot) + " · " + (sys ? sys.label : c.system)}</button>;
+          })}
+        </div>
+      )}
       <div style={{ display: "grid", gap: 14 }}>
         <div><label style={lbl} htmlFor="cname">Name (optional)</label><input id="cname" style={field} value={name} maxLength={60} onChange={e => setName(e.target.value)} placeholder="Whose chart is this?" /></div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -218,7 +274,7 @@ export function ChartScreen({ system, meta }) {
           <button type="submit" disabled={busy} style={{ ...primaryBtn, padding: "13px 30px", fontSize: 15 }}>{busy ? "calculating…" : "generate chart ✦"}</button>
           <button type="button" onClick={useNow} style={{ fontSize: 12, color: T.muted, background: "none", border: "1px solid " + T.border, borderRadius: 999, padding: "8px 14px", cursor: "pointer" }}>use this moment (current transits)</button>
         </div>
-        <p style={{ fontSize: 11, color: T.dim, margin: 0, lineHeight: 1.6 }}>Free: one chart at a time, two different charts a day. Nothing is saved. Places: GeoNames (CC BY 4.0).</p>
+        <p style={{ fontSize: 11, color: T.dim, margin: 0, lineHeight: 1.6 }}>{saved.length || (auth && auth.me && auth.me.plan === "paid") ? "Paid plan: no daily limit. Save charts from the chart view." : "Free: one chart at a time, two different charts a day. Nothing is saved."} Places: GeoNames (CC BY 4.0).</p>
       </div>
     </form>
   );

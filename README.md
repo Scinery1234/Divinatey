@@ -7,11 +7,11 @@ I Ching + Tarot drawn from this exact moment in time, interpreted by Claude, plu
 - **Server** (`server/`, Express): holds the Anthropic API key, generates the seed (timestamp + ANU quantum noise, with hardware entropy as fallback), casts the reading and asks Claude to interpret it.
 - **Client** (`src/`, React + Vite): the splash screen, the reading, the follow-up chat, crisis resources, and the About/Terms/Privacy pages (at `/about`, `/terms`, `/privacy`).
 - **Shared** (`shared/`): the casting engine used by both sides, the crisis keywords, and the chart engine (`shared/astro/`).
-- **Charts** (`server/astro.js`): the server calculates and renders every chart from the birth details, so the free limit can't be bypassed. Each system is loaded into its own isolated instance of the engine. Routes: `GET /api/places?q=` (birth place search over 111k GeoNames places), `GET /api/systems`, `POST /api/chart`. The free tier allows `FREE_CHARTS_PER_DAY` (2) different charts per IP per day; reopening the same chart doesn't count. IPs are held only as salted hashes, in memory, reset daily.
+- **Charts** (`server/astro.js`): the server calculates and renders every chart from the birth details, so the free limit can't be bypassed. Each system is loaded into its own isolated instance of the engine. Routes: `GET /api/places?q=` (birth place search over 111k GeoNames places), `GET /api/systems`, `POST /api/chart`. The free tier allows `FREE_CHARTS_PER_DAY` (2) different charts per IP per day; reopening the same chart doesn't count. IPs are held only as keyed hashes and reset daily.
 
 The client only ever sends the **seed** back. The server rebuilds the reading from it, so a client can't get arbitrary content into the prompts, and the API key never reaches the browser. The three interpretations (I Ching, Tarot, synthesis) run in parallel and return structured JSON.
 
-Nothing is stored. Rate limiting is an in-memory, per-IP counter (`RATE_LIMIT_PER_10MIN`, 40 by default).
+Nothing is stored unless someone creates an account (see below). Rate limiting is an in-memory, per-IP counter (`RATE_LIMIT_PER_10MIN`, 40 by default).
 
 ## Running locally
 
@@ -51,8 +51,25 @@ If the app runs behind a reverse proxy or load balancer, set `TRUST_PROXY=1` so 
 | `RATE_LIMIT_PER_10MIN` | `40` | Interpret and chat requests per IP |
 | `TRUST_PROXY` | (unset) | Set to `1` behind a proxy |
 | `FREE_CHARTS_PER_DAY` | `2` | Different charts each IP may open per UTC day |
+| `SUPABASE_URL` | (unset) | Turns accounts on, with the two keys below |
+| `SUPABASE_ANON_KEY` | (unset) | Public key the browser uses to sign in |
+| `SUPABASE_SERVICE_ROLE_KEY` | (unset) | Secret; server only |
+| `FREE_LIMIT_SECRET` | (random per start) | Key for hashing IPs in the free chart count |
 
 If a request is declined on policy grounds, it's automatically retried on Anthropic's recommended fallback model (`fallbacks: "default"`).
+
+## Accounts (Supabase)
+
+Accounts are optional: drawing and free charts work without them. With Supabase configured, people can sign up with email and password or use a magic link, reset their password, and (on the paid plan) save two charts.
+
+1. Create a Supabase project and run `supabase/migrations/0001_accounts_and_charts.sql` in the SQL editor.
+2. In **Authentication → URL Configuration**, set the Site URL to your domain and add `https://<your-domain>/account` to the redirect URLs. Sign-in links, confirmations and password resets land there.
+3. In **Authentication → Providers → Email**, keep email confirmation on, set the minimum password length to 8 and turn on leaked-password protection.
+4. Set `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` and `FREE_LIMIT_SECRET` on the server.
+
+The browser gets only the anon key (from `GET /api/config`) and uses it just to sign in. Every read and write of profiles, saved charts and free-tier usage goes through this server with the service-role key, which checks the plan; row-level security blocks direct writes. Plans are set in `profiles.plan` (`free` or `paid`); Stripe will update it in the next phase.
+
+Routes: `GET /api/me`, `PUT /api/charts/:slot` (paid, slots 1–2), `DELETE /api/charts/:slot`. Paid accounts skip the free daily chart limit.
 
 ## Standalone chart pages
 

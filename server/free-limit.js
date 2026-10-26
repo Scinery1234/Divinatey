@@ -1,31 +1,26 @@
 import crypto from "node:crypto";
 
 // Free tier: each IP may open `max` different charts per UTC day. Asking for
-// the same chart again (same system and birth details) doesn't count. IPs are
-// kept only as salted hashes, and the whole table is dropped when the day
-// changes. In memory, like rate-limit.js: one instance only.
-export function freeChartLimit({ max }) {
-  let day = "", salt = "", seen = new Map();
-  const roll = () => {
-    const today = new Date().toISOString().slice(0, 10);
-    if (today !== day) { day = today; salt = crypto.randomBytes(16).toString("hex"); seen = new Map(); }
-  };
-  const hash = ip => crypto.createHash("sha256").update(salt + ip).digest("hex");
+// the same chart again (same system and birth details) doesn't count. IPs and
+// chart details are stored only as HMACs keyed with FREE_LIMIT_SECRET, so the
+// stored rows can't be turned back into addresses or birth data.
+export function freeChartLimit({ max, store, secret }) {
+  const key = secret || crypto.randomBytes(32).toString("hex");
+  const mac = v => crypto.createHmac("sha256", key).update(v).digest("hex");
+  const today = () => new Date().toISOString().slice(0, 10);
 
   return {
     // Whether this IP may open this chart now: {ok, used, max}.
-    check(ip, key) {
-      roll();
-      const keys = seen.get(hash(ip)) || new Set();
-      return { ok: keys.has(key) || keys.size < max, used: keys.size, max };
+    async check(ip, chartKey) {
+      const day = today();
+      const seen = await store.usage(day, mac(day + "|" + ip));
+      return { ok: seen.has(mac(chartKey)) || seen.size < max, used: seen.size, max };
     },
     // Counts the chart once it has been delivered.
-    record(ip, key) {
-      roll();
-      const h = hash(ip);
-      if (!seen.has(h)) seen.set(h, new Set());
-      seen.get(h).add(key);
-      return { used: seen.get(h).size, max };
+    async record(ip, chartKey) {
+      const day = today(), ipHash = mac(day + "|" + ip);
+      await store.recordUsage(day, ipHash, mac(chartKey));
+      return { used: (await store.usage(day, ipHash)).size, max };
     },
   };
 }

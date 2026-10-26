@@ -2,32 +2,35 @@ export class ApiError extends Error {
   constructor(status, code) { super(code || "HTTP " + status); this.status = status; this.code = code; }
 }
 
-async function post(path, body) {
-  const res = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body || {}),
-  });
+// Set by auth.js: resolves to the signed-in session's access token, or null.
+let tokenSource = async () => null;
+export function setTokenSource(fn) { tokenSource = fn; }
+
+async function call(method, path, body, withAuth) {
+  const headers = {};
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (withAuth) { const t = await tokenSource(); if (t) headers.Authorization = "Bearer " + t; }
+  const res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(res.status, data.error);
   return data;
 }
+const post = (path, body) => call("POST", path, body || {}, false);
 
 export const drawReading = () => post("/api/draw");
 export const interpret = seed => post("/api/interpret", { seed });
 export const askOracle = (seed, synthesis, history) =>
   post("/api/chat", { seed, synthesis, history: history.map(m => ({ role: m.role, text: m.text })) });
 
-async function get(path) {
-  const res = await fetch(path);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error);
-  return data;
-}
+const get = path => call("GET", path, undefined, false);
 
 export const getSystems = () => get("/api/systems");
 export const findPlaces = q => get("/api/places?q=" + encodeURIComponent(q));
-export const makeChart = body => post("/api/chart", body);
+export const makeChart = body => call("POST", "/api/chart", body, true);
+export const getConfig = () => get("/api/config");
+export const getMe = () => call("GET", "/api/me", undefined, true);
+export const saveChartSlot = (slot, body) => call("PUT", "/api/charts/" + slot, body, true);
+export const deleteChartSlot = slot => call("DELETE", "/api/charts/" + slot, undefined, true);
 
 export function chartErrorText(err) {
   if (err instanceof ApiError) {
