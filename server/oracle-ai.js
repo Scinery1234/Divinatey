@@ -190,12 +190,37 @@ function defaultFacts(charts) {
   return [...core, ...now].slice(0, 6);
 }
 
+// Breadth: every linked chart gets a say, and none takes over. Human Design in
+// particular yields far more facts than the others, so without this it dominates.
+const PER_CHART = 2;
+function balanceFacts(picked, charts) {
+  const out = [], count = {};
+  for (const k of picked) {
+    if ((count[k.system] || 0) >= PER_CHART) continue;
+    count[k.system] = (count[k.system] || 0) + 1; out.push(k);
+  }
+  for (const c of charts) {                      // a linked chart the picker skipped: its core fact
+    if (count[c.system]) continue;
+    const core = c.cards.find(k => k.kind === "chart");
+    if (core) { out.push({ ...core, label: c.label }); count[c.system] = 1; }
+  }
+  return out.slice(0, Math.max(6, PER_CHART * charts.length));
+}
+// Lists the facts chart by chart, alternating, so no system sits at the top.
+function interleave(charts) {
+  const lists = charts.map(c => c.cards.map(k => ({ ...k, label: c.label })));
+  const out = [];
+  for (let i = 0; lists.some(l => i < l.length); i++) lists.forEach(l => { if (i < l.length) out.push(l[i]); });
+  return out;
+}
+
 export async function linkedChat(r, synthesis, history, charts, interp) {
   const shown = describeInterpretation(interp);
   const t0 = Date.now(), times = {};
   const step = async (name, fn) => { const t = Date.now(); try { return await fn(); } finally { times[name] = Date.now() - t; } };
   const question = history[history.length - 1].text;
-  const all = charts.flatMap(c => c.cards.map(k => ({ ...k, label: c.label })));
+  const all = interleave(charts);
+  const names = charts.map(c => c.label).join(", ");
   const byId = new Map(all.map(k => [k.id, k]));
 
   // 1. Retrieve (optional: falls back to default facts)
@@ -205,10 +230,12 @@ export async function linkedChat(r, synthesis, history, charts, interp) {
     messages: [{ role: "user", content:
       "Their draw: " + describeReading(r) + "\n\nConversation so far:\n" + transcript(history) +
       "\n\nChart facts (id | chart | fact):\n" + all.map(k => k.id + " | " + k.label + " | " + k.text).join("\n") +
-      "\n\nReturn the ids of the 3 to 6 facts most relevant to their latest message (fewer if few apply). Prefer a mix of lasting traits and what's happening now." }],
+      "\n\nReturn the ids of the facts most relevant to their latest message. They have linked " + charts.length + " chart" + (charts.length > 1 ? "s" : "") + " (" + names + "): " +
+      (charts.length > 1 ? "choose from each of them, one or two per chart, and never more than " + PER_CHART + " from any one chart. " : "choose 3 to 6. ") +
+      "Prefer a mix of lasting traits and what's happening now." }],
   })).catch(err => { if (err instanceof OracleRefusal) throw err; console.warn("Linked chat: retrieve step failed, using default facts:", err.message || err); return null; });
-  let facts = ((pick && pick.ids) || []).map(id => byId.get(id)).filter(Boolean).slice(0, 6);
-  if (!facts.length) facts = defaultFacts(charts);
+  let facts = ((pick && pick.ids) || []).map(id => byId.get(id)).filter(Boolean);
+  facts = facts.length ? balanceFacts(facts, charts) : defaultFacts(charts);
 
   // 2. Make sense (retried once: a malformed reply is the usual failure)
   const notesCall = () => ask({
@@ -219,8 +246,8 @@ export async function linkedChat(r, synthesis, history, charts, interp) {
       (shown ? "\nWhat their reading page says about each part (stay consistent with it):\n" + shown : "") +
       "\n\nConversation so far:\n" + transcript(history) +
       "\n\nRelevant facts from the charts they chose to link:\n" + (facts.map(k => k.id + " | " + k.label + " | " + k.text).join("\n") || "(none apply)") +
-      "\n\ndraw: what the cards and hexagram say about their latest message, consistent with what their page already says (2-3 sentences).\n" +
-      "chart: what the chart facts add (2-3 sentences), or an empty string if none apply.\n" +
+      "\n\ndraw: what the hexagram and the cards (both, not just one) say about their latest message, consistent with what their page already says (2-3 sentences).\n" +
+      "chart: what the chart facts add (2-4 sentences), or an empty string if none apply. " + (charts.length > 1 ? "Give each linked chart (" + names + ") its own say; don't let one system carry the answer. " : "") + "\n" +
       "fit: where the draw and the charts agree or pull against each other (1-2 sentences).\n" +
       "core: the single most useful insight for them right now (1-2 sentences).\n" +
       "used: for each fact you actually relied on, its id and a plain-English phrase a newcomer would understand, " +
@@ -240,6 +267,7 @@ export async function linkedChat(r, synthesis, history, charts, interp) {
       "\n\nYour private notes:\n- Draw: " + notes.draw + "\n- Charts: " + notes.chart + "\n- Fit: " + notes.fit + "\n- Core insight: " + notes.core +
       "\n\nWrite your reply to them: 3-5 sentences, plain text, warm, poetic and grounded. Lead with the core insight in terms of their situation. " +
       "Weave in the draw and the charts as everyday meaning, not as labels: use at most one term from any system, and explain it in plain words if you do. " +
+      (charts.length > 1 ? "Let more than one of their charts shape the answer, not just one. " : "") +
       "End with one reflective question." }],
   }));
 

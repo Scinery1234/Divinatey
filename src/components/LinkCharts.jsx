@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { T, GRAD } from "../theme.js";
+import { DateFields } from "./DateFields.jsx";
 import { CHART_SYSTEMS, PlacePicker } from "./ChartScreen.jsx";
 import { loadSession } from "../session.js";
 
@@ -112,10 +113,8 @@ function LinkPanel({ linked, auth, onClose, onSave }) {
           </div>
         </div>}
         <div><label style={lbl} htmlFor="lname">Name (optional)</label><input id="lname" style={field} value={name} maxLength={60} onChange={e => setName(e.target.value)} /></div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div><label style={lbl} htmlFor="ldate">Birth date</label><input id="ldate" type="date" style={field} value={date} onChange={e => setDate(e.target.value)} /></div>
-          <div><label style={lbl} htmlFor="ltime">Birth time</label><input id="ltime" type="time" style={field} value={time} onChange={e => setTime(e.target.value)} /></div>
-        </div>
+        <div><label style={lbl} htmlFor="ldate">Birth date</label><DateFields id="ldate" value={date} onChange={setDate} /></div>
+        <div style={{ maxWidth: 220 }}><label style={lbl} htmlFor="ltime">Birth time</label><input id="ltime" type="time" style={field} value={time} onChange={e => setTime(e.target.value)} /></div>
         <div><label style={lbl} htmlFor="place">Birth place</label><PlacePicker value={place} onPick={pickPlace} /></div>
         {needCoords && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div><label style={lbl} htmlFor="llat">Latitude</label><input id="llat" type="number" step="0.01" style={field} value={lat} onChange={e => setLat(e.target.value)} /></div>

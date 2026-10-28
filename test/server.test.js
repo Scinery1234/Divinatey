@@ -12,6 +12,10 @@ function reply(body) {
   const fmt = body.output_config && body.output_config.format;
   const content = body.messages[0].content;
   let text = "A warm reply. What do you notice?";
+  if (fmt && content.includes("Return the ids") && content.includes("ONLYHD")) {
+    const ids = [...content.matchAll(/^(human-design:[a-z0-9]+:\d+) \|/gm)].map(m => m[1]).slice(0, 5);
+    return { stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ ids }) }] };
+  }
   if (fmt && content.includes("Return the ids")) {
     const ids = [...content.matchAll(/^([a-z-]+:[a-z0-9]+:\d+) \|/gm)].map(m => m[1]);
     return { stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ ids: [ids[0], ids.find(i => i.includes(":now:")) || ids[1]] }) }] };
@@ -252,4 +256,27 @@ test("chat sees what the reading page says about each card and the hexagram", as
   assert.match(sys2, /I Ching: Browser primary\./);
   assert.ok(sys2.includes("Tarot, " + d2.reading.cards[1].pos + " (" + d2.reading.cards[1].name + "): " + "x".repeat(400) + "\n"));
   assert.ok(!sys2.includes("x".repeat(401)));
+});
+
+test("linked chat keeps breadth: no chart takes over, every linked chart gets a say", async () => {
+  const { body: { seed } } = await post("/api/draw", {});
+  const charts = [
+    { system: "human-design", date: "1990-07-15", time: "14:30", tz: "Australia/Sydney" },
+    { system: "natal", date: "1990-07-15", time: "14:30", tz: "Australia/Sydney", lat: -33.87, lon: 151.21 },
+    { system: "vedic", date: "1990-07-15", time: "14:30", tz: "Australia/Sydney", lat: -33.87, lon: 151.21 },
+  ];
+  requests.length = 0;
+  const r = await post("/api/chat", { seed, history: [{ role: "user", text: "ONLYHD what now?" }], charts }, "test:u-p4:p4@example.com:paid");
+  assert.equal(r.status, 200);
+  const [pick, notes] = requests.map(q => q.body.messages[0].content);
+  assert.match(pick, /choose from each of them, one or two per chart, and never more than 2 from any one chart/);
+  // The list alternates between charts rather than starting with a block of one system.
+  const firstThree = [...pick.matchAll(/^([a-z-]+):[a-z0-9]+:\d+ \|/gm)].slice(0, 3).map(m => m[1]);
+  assert.deepEqual(firstThree, ["human-design", "natal", "vedic"]);
+  const used = notes.split("Relevant facts from the charts they chose to link:\n")[1].split("\n\n")[0].split("\n");
+  assert.equal(used.filter(l => l.startsWith("human-design:")).length, 2, "Human Design capped at 2");
+  assert.ok(used.some(l => l.startsWith("natal:")), "natal gets a say");
+  assert.ok(used.some(l => l.startsWith("vedic:")), "vedic gets a say");
+  assert.match(notes, /Give each linked chart \(Human Design, Natal astrology, Vedic astrology\) its own say/);
+  assert.match(notes, /the hexagram and the cards \(both, not just one\)/);
 });

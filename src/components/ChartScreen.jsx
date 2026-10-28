@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { T, GRAD } from "../theme.js";
+import { DateFields } from "./DateFields.jsx";
 import { findPlaces, makeChart, chartErrorText, saveChartSlot } from "../api.js";
 import { useAstroStyles } from "../astroStyles.js";
 import { PREVIEW } from "../preview.js";
@@ -274,10 +275,8 @@ export function ChartScreen({ system, meta, auth, canChat, prefill, onPrefillUse
       )}
       <div style={{ display: "grid", gap: 14 }}>
         <div><label style={lbl} htmlFor="cname">Name (optional)</label><input id="cname" style={field} value={name} maxLength={60} onChange={e => setName(e.target.value)} placeholder="Whose chart is this?" /></div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div><label style={lbl} htmlFor="cdate">Birth date</label><input id="cdate" type="date" style={field} value={date} onChange={e => setDate(e.target.value)} /></div>
-          <div><label style={lbl} htmlFor="ctime">Birth time</label><input id="ctime" type="time" style={field} value={time} onChange={e => setTime(e.target.value)} /></div>
-        </div>
+        <div><label style={lbl} htmlFor="cdate">Birth date</label><DateFields id="cdate" value={date} onChange={setDate} /></div>
+        <div style={{ maxWidth: 220 }}><label style={lbl} htmlFor="ctime">Birth time</label><input id="ctime" type="time" style={field} value={time} onChange={e => setTime(e.target.value)} /></div>
         <div>
           <label style={lbl} htmlFor="place">Birth place</label>
           <PlacePicker value={place} onPick={pickPlace} />
