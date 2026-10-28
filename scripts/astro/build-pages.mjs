@@ -8,6 +8,7 @@ const SYSTEMS=[
   {module:'humandesign',out:'human-design.html',title:'Human Design Bodygraph'},
   {module:'natal',out:'natal-astrology.html',title:'Natal Astrology Chart'},
   {module:'vedic',out:'vedic-astrology.html',title:'Vedic Astrology Chart'},
+  {module:'numerology',out:'numerology.html',title:'Numerology Chart'},
 ];
 const core=['shared/astro/core/astronomy.js','shared/astro/core/tz.js','shared/astro/core/cities.js','shared/astro/core/core.js'].map(read).join('\n;\n');
 const css=read('shared/astro/core/core.css');

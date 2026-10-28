@@ -1,6 +1,6 @@
 import {load} from '../scripts/astro/load.mjs';import assert from 'node:assert/strict';import {test} from 'node:test';
 import fs from 'node:fs';
-const SYS=['genekeys','humandesign','natal','vedic'];
+const SYS=['genekeys','humandesign','natal','vedic','numerology'];
 // Words that belong to one system only. A prompt from any other system must not contain them.
 const OWN={
   // (Not 'Siddhi': it's also one of the 27 Vedic yogas in the Panchang.)
@@ -8,6 +8,7 @@ const OWN={
   humandesign:[/Human Design/i,/bodygraph/i,/Manifestor|Projector|Reflector/],
   natal:[/Placidus/i,/tropical/i,/Western astrolog/i],
   vedic:[/Jyotish/i,/nakshatra/i,/dasha/i,/Lahiri/i],
+  numerology:[/numerolog/i,/Pythagorean/i,/Life Path/i,/Soul Urge/i],
 };
 const input={utc:new Date('1990-07-15T04:30:00Z'),lat:-33.87,lon:151.21,name:'Sample'};
 

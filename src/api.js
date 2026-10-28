@@ -64,7 +64,7 @@ export const deleteChartSlot = slot => call("DELETE", "/api/charts/" + slot, und
 
 export function chartErrorText(err) {
   if (err instanceof ApiError) {
-    if (err.code === "free_limit") return "You've used today's free charts for two people. Come back tomorrow for someone new; the people you've already entered today still open in all four systems.";
+    if (err.code === "free_limit") return "You've used today's free charts for two people. Come back tomorrow for someone new; the people you've already entered today still open in every system.";
     if (err.status === 429) return "Too many charts at once. Wait a few minutes, then try again.";
     if (err.code === "invalid location") return "Choose your birth place from the list so we know its coordinates.";
     if (err.code === "invalid timezone") return "Choose your birth place from the list so we know its timezone.";

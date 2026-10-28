@@ -5,6 +5,7 @@ import { CHART_SYSTEMS, PlacePicker } from "./ChartScreen.jsx";
 import { loadSession } from "../session.js";
 
 const NEEDS_COORDS = new Set(["natal", "vedic"]);
+const DATE_ONLY = new Set(["numerology"]);     // needs the full name at birth, not the place
 const field = { width: "100%", padding: "10px 12px", border: "1px solid " + T.border, borderRadius: 10, fontSize: 16, color: T.text, background: T.bg, fontFamily: "Georgia,serif" };
 const lbl = { display: "block", fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: T.muted, fontWeight: 700, margin: "0 0 6px" };
 const primary = { background: GRAD, border: "none", borderRadius: 999, color: "#fff", fontWeight: 700, cursor: "pointer", letterSpacing: 0.5 };
@@ -15,7 +16,9 @@ export function linkedChartBodies(linked) {
   if (!linked || !linked.person || !linked.systems.length) return [];
   const p = linked.person;
   return linked.systems.map(system => ({
-    system, name: p.name || "", date: p.date, time: p.time, tz: p.place.tz,
+    system, name: p.name || "", date: p.date, time: p.time || "12:00",
+    ...(p.place ? { tz: p.place.tz } : {}),
+    ...(p.birthName ? { birthName: p.birthName } : {}),
     ...(NEEDS_COORDS.has(system) ? { lat: parseFloat(p.lat), lon: parseFloat(p.lon) } : {}),
   }));
 }
@@ -24,10 +27,11 @@ export function linkedChartBodies(linked) {
 function knownPeople(auth) {
   const out = [], seen = new Set();
   const add = (name, b) => {
-    const k = [b.date, b.time, b.tz || (b.place && b.place.tz)].join("|");
+    const k = [b.date, b.time, b.tz || (b.place && b.place.tz), b.birthName || ""].join("|");
     if (!b.date || seen.has(k)) return; seen.add(k);
-    const place = b.place && typeof b.place === "object" ? b.place : { label: b.place || b.tz, tz: b.tz, lat: b.lat ?? NaN, lon: b.lon ?? NaN };
-    out.push({ name: name || "", date: b.date, time: b.time, place, lat: b.lat ?? place.lat ?? "", lon: b.lon ?? place.lon ?? "" });
+    const place = b.place && typeof b.place === "object" ? b.place
+      : b.tz && b.tz !== "UTC" ? { label: b.place || b.tz, tz: b.tz, lat: b.lat ?? NaN, lon: b.lon ?? NaN } : null;
+    out.push({ name: name || "", birthName: b.birthName || "", date: b.date, time: b.time, place, lat: b.lat ?? (place && place.lat) ?? "", lon: b.lon ?? (place && place.lon) ?? "" });
   };
   const onScreen = loadSession().person;
   if (onScreen) add(onScreen.name, { ...onScreen, tz: onScreen.place && onScreen.place.tz });
@@ -69,6 +73,7 @@ function LinkPanel({ linked, auth, onClose, onSave }) {
   const start = (linked && linked.person) || people[0] || null;
   const [systems, setSystems] = useState(() => (linked && linked.systems) || []);
   const [name, setName] = useState(start ? start.name : "");
+  const [birthName, setBirthName] = useState(start ? start.birthName || "" : "");
   const [date, setDate] = useState(start ? start.date : "");
   const [time, setTime] = useState(start ? start.time : "12:00");
   const [place, setPlace] = useState(start ? start.place : null);
@@ -76,15 +81,18 @@ function LinkPanel({ linked, auth, onClose, onSave }) {
   const [lon, setLon] = useState(start && start.lon != null ? String(start.lon) : "");
   const [error, setError] = useState(null);
   const needCoords = systems.some(s => NEEDS_COORDS.has(s));
-  const use = p => { setName(p.name); setDate(p.date); setTime(p.time); setPlace(p.place); setLat(p.lat == null ? "" : String(p.lat)); setLon(p.lon == null ? "" : String(p.lon)); };
+  const needName = systems.some(s => DATE_ONLY.has(s));
+  const needPlace = systems.some(s => !DATE_ONLY.has(s));
+  const use = p => { setName(p.name); setBirthName(p.birthName || ""); setDate(p.date); setTime(p.time); setPlace(p.place); setLat(p.lat == null ? "" : String(p.lat)); setLon(p.lon == null ? "" : String(p.lon)); };
   const pickPlace = pl => { setPlace(pl); if (pl) { setLat(String(pl.lat)); setLon(String(pl.lon)); } };
   const save = e => {
     e.preventDefault();
     if (!systems.length) return setError("Tick at least one chart.");
     if (!date) return setError("Enter a birth date.");
-    if (!place || !place.tz) return setError("Choose a birth place from the list.");
+    if (needPlace && (!place || !place.tz)) return setError("Choose a birth place from the list.");
+    if (needName && !birthName.trim()) return setError("Numerology needs the full name at birth.");
     if (needCoords && (!isFinite(parseFloat(lat)) || !isFinite(parseFloat(lon)))) return setError("Natal and Vedic charts need the birth place's coordinates: choose it from the list.");
-    onSave({ systems, person: { name: name.trim(), date, time, place, lat, lon } });
+    onSave({ systems, person: { name: name.trim(), birthName: birthName.trim(), date, time, place, lat, lon } });
   };
   return (
     <div role="dialog" aria-label="Link your charts" style={{ position: "fixed", inset: 0, zIndex: 70, display: "flex", justifyContent: "flex-end" }}>
@@ -113,15 +121,18 @@ function LinkPanel({ linked, auth, onClose, onSave }) {
           </div>
         </div>}
         <div><label style={lbl} htmlFor="lname">Name (optional)</label><input id="lname" style={field} value={name} maxLength={60} onChange={e => setName(e.target.value)} /></div>
+        {needName && <div><label style={lbl} htmlFor="lbname">Full name at birth</label><input id="lbname" style={field} value={birthName} maxLength={100} onChange={e => setBirthName(e.target.value)} placeholder="As on the birth certificate" /></div>}
         <div><label style={lbl} htmlFor="ldate">Birth date</label><DateFields id="ldate" value={date} onChange={setDate} /></div>
         <div style={{ maxWidth: 220 }}><label style={lbl} htmlFor="ltime">Birth time</label><input id="ltime" type="time" style={field} value={time} onChange={e => setTime(e.target.value)} /></div>
-        <div><label style={lbl} htmlFor="place">Birth place</label><PlacePicker value={place} onPick={pickPlace} /></div>
+        <div><label style={lbl} htmlFor="place">Birth place{needPlace ? "" : " (optional)"}</label><PlacePicker value={place} onPick={pickPlace} /></div>
         {needCoords && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div><label style={lbl} htmlFor="llat">Latitude</label><input id="llat" type="number" step="0.01" style={field} value={lat} onChange={e => setLat(e.target.value)} /></div>
           <div><label style={lbl} htmlFor="llon">Longitude</label><input id="llon" type="number" step="0.01" style={field} value={lon} onChange={e => setLon(e.target.value)} /></div>
         </div>}
         <p style={{ margin: 0, fontSize: 11, color: T.dim, lineHeight: 1.6 }}>
-          {needCoords ? "Natal and Vedic use the exact birthplace coordinates; picking a place fills them in." : "Gene Keys and Human Design need the date, time and place (for the timezone)."}
+          {needCoords ? "Natal and Vedic use the exact birthplace coordinates; picking a place fills them in."
+            : needPlace ? "Gene Keys and Human Design need the date, time and place (for the timezone)."
+            : "Numerology uses only the birth date and the full name at birth."}
         </p>
         {error && <p role="alert" style={{ margin: 0, fontSize: 13, color: T.pink }}>{error}</p>}
         <div><button type="submit" style={{ ...primary, padding: "12px 28px", fontSize: 15 }}>link {systems.length > 1 ? "these charts" : "this chart"} ✦</button></div>
