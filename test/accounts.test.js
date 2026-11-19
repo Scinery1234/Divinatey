@@ -8,7 +8,7 @@ let server, base;
 before(async () => {
   const port = 20000 + Math.floor(Math.random() * 1000);
   base = "http://localhost:" + port;
-  const env = { ...process.env, PORT: String(port), ANTHROPIC_API_KEY: "test", AUTH_TEST_TOKENS: "1", FREE_CHARTS_PER_DAY: "1" };
+  const env = { ...process.env, PORT: String(port), ANTHROPIC_API_KEY: "test", AUTH_TEST_TOKENS: "1", FREE_CHARTS_PER_DAY: "1", COMP_EMAILS: " Owner@Example.com ,tester@example.com" };
   delete env.SUPABASE_URL; delete env.SUPABASE_SERVICE_ROLE_KEY; delete env.SUPABASE_SERVICE_KEY;
   server = spawn(process.execPath, ["server/index.js"], { env, stdio: ["ignore", "pipe", "inherit"] });
   await new Promise(r => server.stdout.on("data", r));
@@ -84,6 +84,15 @@ test("paid preview: anyone can chat and skip the chart limit, only with the head
   assert.equal(me.body.plan, "paid", "signed-in users count as paid in the preview");
   assert.equal((await pv("PUT", "/api/charts/1", natal, FREE)).status, 200);
   assert.equal((await pv("PUT", "/api/charts/1", natal)).status, 401, "saving still needs an account");
+});
+
+test("COMP_EMAILS accounts get the paid plan without Stripe, wherever they are", async () => {
+  const OWNER = "test:u-owner:owner@example.com:free";
+  const me = (await call("GET", "/api/me", OWNER)).body;
+  assert.equal(me.plan, "paid");
+  assert.equal(me.billing.subscribed, false);
+  assert.equal((await call("PUT", "/api/charts/1", OWNER, natal)).status, 200, "saves charts");
+  assert.equal((await call("GET", "/api/me", FREE)).body.plan, "free", "others stay free");
 });
 
 test("health check reports the chart server", async () => {

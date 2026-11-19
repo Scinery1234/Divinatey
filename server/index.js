@@ -208,6 +208,9 @@ const accountLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 120 });
 
 // Sets req.user ({id, email, plan}) when the request carries a valid session token.
 // identifyOptional treats a missing or stale token as signed out instead of failing.
+// Accounts given the paid plan without Stripe (the owner, testers): COMP_EMAILS=a@x.com,b@y.com
+const COMP_EMAILS = new Set((process.env.COMP_EMAILS || "").split(",").map(e => e.trim().toLowerCase()).filter(Boolean));
+const isComp = email => !!email && COMP_EMAILS.has(String(email).toLowerCase());
 const identify = (req, res, next) => identifyUser(req, res, next, false);
 const identifyOptional = (req, res, next) => identifyUser(req, res, next, true);
 async function identifyUser(req, res, next, optional) {
@@ -217,7 +220,7 @@ async function identifyUser(req, res, next, optional) {
     const user = await store.getUser(h.slice(7));
     if (!user) return optional ? next() : res.status(401).json({ error: "signed_out" });
     const profile = await store.getProfile(user.id, user);
-    req.user = { id: user.id, email: user.email, plan: profile.plan === "paid" || req.preview ? "paid" : "free" };
+    req.user = { id: user.id, email: user.email, plan: profile.plan === "paid" || req.preview || isComp(user.email) ? "paid" : "free" };
     next();
   } catch (err) {
     // On routes that work signed out, an account-service failure shouldn't block the request.

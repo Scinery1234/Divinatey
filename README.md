@@ -57,6 +57,7 @@ If the app runs behind a reverse proxy or load balancer, set `TRUST_PROXY=1` so 
 | `SUPABASE_ANON_KEY` | (unset) | Public key the browser uses to sign in |
 | `SUPABASE_SERVICE_ROLE_KEY` | (unset) | Secret; server only |
 | `FREE_LIMIT_SECRET` | (random per start) | Key for hashing IPs in the free chart count |
+| `COMP_EMAILS` | (none) | Comma-separated emails whose accounts get the paid plan without paying (owner, testers) |
 | `PAID_PREVIEW` | on | Set to `0` to close the paid preview at `/preview` |
 | `PREVIEW_CHAT_PER_10MIN` | `20` | Chat messages per IP in the preview |
 | `EXPLAIN_PER_10MIN` | `60` | Chart explanations and reading sections per IP (paid and preview) |
