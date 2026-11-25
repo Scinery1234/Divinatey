@@ -20,7 +20,11 @@ async function call(method, path, body, withAuth) {
   const data = isJson ? await res.json().catch(() => ({})) : {};
   // Non-JSON errors come from the host, not Divinatey: a gateway timeout (502/503/504)
   // or no API server at all (404).
-  if (!res.ok) throw new ApiError(res.status, data.error || (isJson ? undefined : res.status >= 502 ? "timeout" : "no_server"));
+  if (!res.ok) {
+    const e = new ApiError(res.status, data.error || (isJson ? undefined : res.status >= 502 ? "timeout" : "no_server"));
+    if (data.reason) { e.reason = data.reason; e.upstreamStatus = data.status; }
+    throw e;
+  }
   // A web page instead of JSON means the site is being served without its API server.
   if (!isJson) throw new ApiError(res.status, "no_server");
   return data;
@@ -77,12 +81,24 @@ export function chartErrorText(err) {
   return "The chart couldn't be calculated just now. Try again in a moment.";
 }
 
+const UPSTREAM = {
+  key: "The oracle's AI service didn't accept this site's API key. (Site owner: check ANTHROPIC_API_KEY.)",
+  credit: "The oracle's AI service is out of credit. (Site owner: add credit in the Claude Console.)",
+  model: "The oracle's AI model isn't available to this site's API key. (Site owner: check ANTHROPIC_MODEL.)",
+  overloaded: "The oracle's AI service is very busy right now. Try again in a minute.",
+  outage: "The oracle's AI service had a problem just now. Try again in a moment.",
+};
+function upstreamText(err) {
+  const r = err.reason || "request";
+  return (UPSTREAM[r] || "The oracle's AI service turned this request down.") + " (Error 502: " + r + (err.upstreamStatus ? " " + err.upstreamStatus : "") + ")";
+}
+
 export function oracleErrorText(err) {
   if (err instanceof ApiError) {
     if (err.code === "network") return "Couldn't reach Divinatey. Check your connection, then try again.";
     if (err.code === "timeout") return "The oracle took too long to answer and the connection was closed. Try again; with charts linked, answers can take up to half a minute. (Error " + err.status + ")";
     if (err.code === "no_server") return "The oracle isn't reachable: this site is running without Divinatey's server. (Error: no_server)";
-    if (err.code === "upstream") return "The oracle's AI service had a problem just now. Try again in a moment. (Error 502: upstream)";
+    if (err.code === "upstream") return upstreamText(err);
     if (err.code === "internal") return "Something went wrong on our side. Try again in a moment. (Error 500)";
     if (err.code === "paid_required" || err.code === "signed_out") return "Chat with the oracle is part of the paid plan.";
     if (err.code === "question_limit") return "You've asked this week's 5 questions with your charts linked. Unlink your charts to keep chatting, come back next week, or ask anyway for $5.";

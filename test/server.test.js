@@ -49,6 +49,11 @@ before(async () => {
         res.statusCode = 404; res.setHeader("content-type", "application/json");
         return res.end(JSON.stringify({ type: "error", error: { type: "not_found_error", message: "model: " + body.model } }));
       }
+      // Simulate an account that has run out of credit.
+      if (JSON.stringify(body.messages).includes("NOCREDIT")) {
+        res.statusCode = 400; res.setHeader("content-type", "application/json");
+        return res.end(JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "Your credit balance is too low to access the Anthropic API." } }));
+      }
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify({ id: "msg_1", type: "message", role: "assistant", model: body.model, usage: { input_tokens: 1, output_tokens: 1 }, ...reply(body) }));
     });
@@ -223,6 +228,12 @@ test("linked chat still answers when the fast model isn't available", async () =
   const models = requests.map(q => q.body.model);
   assert.equal(models.filter(m => /haiku/.test(m)).length, 2, "fast model tried for retrieve and polish");
   assert.equal(models.filter(m => !/haiku/.test(m)).length, 4, "then the main model for all four steps");
+});
+
+test("AI service errors say why (out of credit)", async () => {
+  const r = await post("/api/chat", { seed: 13579, history: [{ role: "user", text: "NOCREDIT what now?" }] });
+  assert.equal(r.status, 502);
+  assert.deepEqual(r.body, { error: "upstream", reason: "credit", status: 400 });
 });
 
 test("chat sees what the reading page says about each card and the hexagram", async () => {

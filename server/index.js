@@ -68,12 +68,23 @@ function readingFrom(req, res) {
   return divineReading(seed);
 }
 
+// Why Claude's API turned a request down, in terms the site owner can act on.
+function upstreamReason(err) {
+  const m = (err.message || "").toLowerCase();
+  if (err.status === 401 || err.status === 403) return "key";
+  if (m.includes("credit balance") || m.includes("billing")) return "credit";
+  if (err.status === 404 || (err.status === 400 && m.includes("model"))) return "model";
+  if (err.status === 529 || m.includes("overloaded")) return "overloaded";
+  if (err.status >= 500 || !err.status) return "outage";
+  return "request";
+}
+
 function sendError(res, err) {
   if (err instanceof OracleRefusal) return res.status(422).json({ error: "refused" });
   if (err instanceof Anthropic.RateLimitError) return res.status(503).json({ error: "busy" });
   if (err instanceof Anthropic.APIError) {
     console.error("Anthropic API error", err.status, err.message);
-    return res.status(502).json({ error: "upstream" });
+    return res.status(502).json({ error: "upstream", reason: upstreamReason(err), status: err.status || null });
   }
   console.error(err);
   return res.status(500).json({ error: "internal" });
