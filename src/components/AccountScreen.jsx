@@ -114,7 +114,7 @@ function PrivacyNote() {
   const item = { margin: 0, fontSize: 12.5, color: T.muted, lineHeight: 1.6 };
   return (
     <ul style={{ listStyle: "none", padding: "12px 14px", margin: "0 0 18px", border: "1px solid " + T.border, borderRadius: 12, display: "grid", gap: 6, background: T.bg }}>
-      <li style={item}>🔒 Birth details are only stored when you save a chart, encrypted, and only you can see them.</li>
+      <li style={item}>🔒 Birth details are only stored when you save a chart, and only you can see them.</li>
       <li style={item}>✦ The AI is sent chart positions, never your name, email or birth place.</li>
       <li style={item}>🗑 Download or delete everything any time, from your account page.</li>
       <li style={{ ...item, marginTop: 2 }}><a href={href("safety")} style={{ color: T.purple, fontWeight: 600 }}>How we protect your data →</a></li>
@@ -215,7 +215,7 @@ function YourData({ auth }) {
   return (
     <div style={{ display: "grid", gap: 10 }}>
       <h3 style={{ ...lbl, margin: 0 }}>Your data</h3>
-      <p style={{ fontSize: 13, color: T.muted, margin: 0, lineHeight: 1.6 }}>Saved charts are encrypted before they're stored. Download a copy of everything kept with your account, or delete it for good.</p>
+      <p style={{ fontSize: 13, color: T.muted, margin: 0, lineHeight: 1.6 }}>Download a copy of everything kept with your account, or delete it for good.</p>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <button style={ghostBtn} disabled={!!busy} onClick={download}>{busy === "export" ? "preparing…" : "Download my data"}</button>
         {!confirming && <button style={{ ...ghostBtn, color: T.pink }} disabled={!!busy} onClick={() => setConfirming(true)}>Delete my account</button>}

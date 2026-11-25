@@ -23,8 +23,8 @@ function Section({ kick, title, intro, children }) {
 // ── 1. At a glance ────────────────────────────────────────────────────────────
 function Glance() {
   const stats = [
-    ["AES-256", "encryption on every saved chart"],
     ["0", "names, places or emails sent to the AI"],
+    ["2", "charts at most, and only if you save them"],
     ["1 step", "to download or delete everything"],
   ];
   return (
@@ -71,7 +71,7 @@ function Flow() {
   const list = { listStyle: "none", padding: 0, margin: "6px 0 0", display: "grid", gap: 3 };
   return (
     <Section kick="Data flow" title="Where your birth details go" intro="From the moment you type them in, here is every place they travel, and where they stop.">
-      <div role="img" aria-label="Your birth details travel over an encrypted connection to Divinatey's server, which calculates the chart. The AI receives only the calculated chart. Saved charts are encrypted before they reach the database; unsaved ones are forgotten.">
+      <div role="img" aria-label="Your birth details travel over an encrypted connection to Divinatey's server, which calculates the chart. The AI receives only the calculated chart. Saved charts are kept for your account only; unsaved ones are forgotten.">
         <Node icon="📱" title="You">Birth date, time and place, typed into your browser.</Node>
         <Arrow label="encrypted connection (HTTPS)" />
         <Node icon="⚙️" title="Divinatey's server">Calculates your chart from the birth details. Nothing is logged.</Node>
@@ -89,7 +89,7 @@ function Flow() {
           </Node>
           <div style={{ display: "grid", gap: 10, alignContent: "start" }}>
             <Node icon="🔒" title="If you save a chart" tone={GOOD}>
-              Encrypted on our server first. The database only ever holds scrambled text it can't read.
+              Kept with your account, and only your account can read it. Delete it any time.
             </Node>
             <Node icon="💨" title="If you don't" tone={T.dim} dashed>
               Discarded as soon as the chart is shown. Nothing to leak.
@@ -118,7 +118,7 @@ function Ledger() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
         {col(true, "Kept with an account", [
           ["✉️", "Your email address and your plan"],
-          ["🔒", "Up to two charts you choose to save, encrypted, with coordinates rounded to about 1 km and no place name"],
+          ["🔒", "Up to two charts you choose to save, with coordinates rounded to about 1 km and no place name"],
           ["📅", "Which weeks you linked charts to a reading, to count your allowance"],
         ])}
         {col(false, "Never kept", [
@@ -137,7 +137,6 @@ function Layers() {
   const rings = [
     ["🌐", "Encrypted connection", "Everything between your browser and the site travels over HTTPS."],
     ["🛡", "Browser shield", "Security headers stop other sites framing this one or running scripts on it."],
-    ["🤖", "Bot check", "Sign-ups and sign-ins pass a Cloudflare Turnstile check, so bots can't mass-create accounts."],
     ["🔑", "Only you", "Database rules mean each account can only ever read its own rows."],
   ];
   const nest = i => {
@@ -145,11 +144,11 @@ function Layers() {
       <div style={{ background: GRAD, color: "#fff", borderRadius: 12, padding: "14px 12px", textAlign: "center" }}>
         <div style={{ fontSize: 22 }} aria-hidden="true">🔒</div>
         <div style={{ fontWeight: 800, fontSize: 14 }}>Your saved chart</div>
-        <div style={{ fontSize: 12, opacity: 0.95, lineHeight: 1.5 }}>sealed with AES-256-GCM and locked to your account and slot</div>
+        <div style={{ fontSize: 12, opacity: 0.95, lineHeight: 1.5 }}>kept with your account, deleted when you say so</div>
       </div>
     );
     const [icon, title, text] = rings[i];
-    const shade = ["#f3eeff", "#ebe3ff", "#e2d7ff", "#d8caff"][i];
+    const shade = ["#f3eeff", "#e9e0ff", "#ddd0ff"][i];
     return (
       <div style={{ background: shade, borderRadius: 16 - i, padding: "10px 10px 10px", border: "1px solid " + T.border }}>
         <div style={{ fontSize: 12.5, color: T.text, lineHeight: 1.5, margin: "0 4px 8px" }}>
