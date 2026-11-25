@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { T, GRAD } from "../theme.js";
 import { accountRedirect, authErrorText } from "../auth.js";
-import { deleteChartSlot, getConfig, exportMyData, deleteMyAccount } from "../api.js";
+import { deleteChartSlot, getConfig, exportMyData, deleteMyAccount, listPastReadings, deletePastReading } from "../api.js";
 import { Turnstile } from "./Turnstile.jsx";
 import { href } from "../preview.js";
 import { CHART_SYSTEMS } from "./ChartScreen.jsx";
@@ -116,6 +116,7 @@ function PrivacyNote() {
     <ul style={{ listStyle: "none", padding: "12px 14px", margin: "0 0 18px", border: "1px solid " + T.border, borderRadius: 12, display: "grid", gap: 6, background: T.bg }}>
       <li style={item}>🔒 Birth details are only stored when you save a chart, and only you can see them.</li>
       <li style={item}>✦ The AI is sent chart positions, never your name, email or birth place.</li>
+      <li style={item}>🔮 Your readings and chats are kept so the oracle can remember them; delete any or all.</li>
       <li style={item}>🗑 Download or delete everything any time, from your account page.</li>
       <li style={{ ...item, marginTop: 2 }}><a href={href("safety")} style={{ color: T.purple, fontWeight: 600 }}>How we protect your data →</a></li>
     </ul>
@@ -162,8 +163,8 @@ function SavedCharts({ me, onOpen, onChanged }) {
   return (
     <div style={{ display: "grid", gap: 10 }}>
       <h3 style={{ ...lbl, margin: 0 }}>Saved charts</h3>
-      {me.plan !== "paid" && <p style={{ fontSize: 13, color: T.muted, margin: 0, lineHeight: 1.6 }}>Saving charts is part of the paid plan: two chart slots, kept with your account.</p>}
-      {me.plan === "paid" && Array.from({ length: me.slots }, (_, i) => i + 1).map(slot => {
+      {me.plan !== "paid" && <p style={{ fontSize: 13, color: T.muted, margin: 0, lineHeight: 1.6 }}>Free accounts keep one person's details. The paid plan keeps two.</p>}
+      {Array.from({ length: me.slots }, (_, i) => i + 1).map(slot => {
         const c = bySlot[slot];
         const sys = c && CHART_SYSTEMS.find(s => s.id === c.system);
         return (
@@ -182,6 +183,60 @@ function SavedCharts({ me, onOpen, onChanged }) {
         );
       })}
       {error && <Notice kind="error">{error}</Notice>}
+    </div>
+  );
+}
+
+// Past draws kept with the account: reopen one with its chat, or delete it.
+function PastReadings({ onOpen }) {
+  const [list, setList] = useState(null);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const load = () => listPastReadings().then(r => setList(r.readings)).catch(() => setError("Your readings couldn't be loaded just now."));
+  useEffect(() => { load(); }, []);
+  const remove = async seed => {
+    setBusy(seed); setError(null);
+    try { await deletePastReading(seed); await load(); } catch { setError("That couldn't be deleted. Try again."); }
+    setBusy(null);
+  };
+  const open = async seed => {
+    setBusy(seed); setError(null);
+    try { await onOpen(seed); } catch { setError("That reading couldn't be opened. Try again."); setBusy(null); }
+  };
+  const date = iso => new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <h3 style={{ ...lbl, margin: 0 }}>Your readings</h3>
+      <p style={{ fontSize: 13, color: T.muted, margin: 0, lineHeight: 1.6 }}>Draws you make while signed in are kept here with their chat, and the oracle can recall them in later readings.</p>
+      {!list && !error && <p style={{ fontSize: 13, color: T.dim, margin: 0 }} role="status">Loading…</p>}
+      {list && !list.length && <p style={{ fontSize: 13, color: T.dim, margin: 0 }}>None yet. Draw a reading while signed in and it will appear here.</p>}
+      {list && list.map(r => (
+        <div key={r.seed} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 14px", border: "1px solid " + T.border, borderRadius: 12, flexWrap: "wrap" }}>
+          <div style={{ minWidth: 0, flex: "1 1 200px" }}>
+            <div style={{ fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: T.purple, fontWeight: 700 }}>{date(r.drawnAt)} · hexagram {r.hexagram}</div>
+            <div style={{ fontSize: 13.5, color: T.text, marginTop: 2, lineHeight: 1.5 }}>{r.question ? "“" + r.question + "”" : <span style={{ color: T.dim }}>No questions asked</span>}
+              {r.messages > 2 && <span style={{ color: T.dim, fontSize: 12 }}> · {Math.floor(r.messages / 2)} exchanges</span>}</div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={{ ...ghostBtn, color: T.purple }} disabled={!!busy} onClick={() => open(r.seed)}>{busy === r.seed ? "opening…" : "Open"}</button>
+            <button style={ghostBtn} disabled={!!busy} onClick={() => remove(r.seed)} aria-label={"Delete the reading from " + date(r.drawnAt)}>Delete</button>
+          </div>
+        </div>
+      ))}
+      {list && list.length > 1 && <div><button style={{ ...linkBtn, color: T.dim }} disabled={!!busy} onClick={() => remove("all")}>Delete all readings</button></div>}
+      {error && <Notice kind="error">{error}</Notice>}
+    </div>
+  );
+}
+
+function FreeAllowance({ free }) {
+  if (!free) return null;
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <h3 style={{ ...lbl, margin: 0 }}>Free account this week</h3>
+      <p style={{ fontSize: 13, color: T.muted, margin: 0, lineHeight: 1.7 }}>
+        Questions to the oracle: {free.chats.used} of {free.chats.max} · AI chart readings: {free.chartReadings.used} of {free.chartReadings.max}. Resets every Monday.
+      </p>
     </div>
   );
 }
@@ -234,7 +289,7 @@ function YourData({ auth }) {
   );
 }
 
-export function AccountScreen({ auth, onOpenChart, initialMode }) {
+export function AccountScreen({ auth, onOpenChart, onOpenReading, initialMode }) {
   if (!auth.ready) return <p style={{ textAlign: "center", color: T.dim, marginTop: 40 }} role="status">Loading…</p>;
   if (!auth.enabled) return (
     <div style={card}><h2 style={h2}>Accounts are coming soon</h2>
@@ -254,7 +309,9 @@ export function AccountScreen({ auth, onOpenChart, initialMode }) {
       </div>
       {!me ? <p style={{ color: T.dim, margin: 0 }} role="status">Loading your plan…</p> : <>
         <BillingPanel me={me} refreshMe={auth.refreshMe} />
+        <FreeAllowance free={me.free} />
         <SavedCharts me={me} onOpen={onOpenChart} onChanged={auth.refreshMe} />
+        {onOpenReading && <PastReadings onOpen={onOpenReading} />}
       </>}
       <YourData auth={auth} />
       <SetPassword client={auth.client} title="Password" intro="Set or change your password. Accounts made with a sign-in link can add one here." />

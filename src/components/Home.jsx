@@ -2,6 +2,7 @@ import { useState } from "react";
 import { T, SCRIPT, GRAD } from "../theme.js";
 import { CHART_SYSTEMS } from "./ChartScreen.jsx";
 import { PlanCards, PAID_FEATURES, goToCheckout } from "./Billing.jsx";
+import { AdSlot } from "./AdSlot.jsx";
 import { FooterLinks, VikLink } from "./common.jsx";
 import { PREVIEW } from "../preview.js";
 
@@ -23,12 +24,13 @@ const SYSTEM_BLURB = {
 
 const FAQ = [
   ["Does it predict the future?", "No. Divinatey is a tool for reflection: a prompt to look at your situation from a new angle. Take every interpretation with a grain of salt."],
-  ["Do I need an account?", "Not to draw or open free charts. You'll want one for the paid plan, so your plan and saved charts follow you."],
-  ["What happens to my birth details?", "They're used to calculate your chart and then discarded, unless you save the chart to your account. See the privacy page for the details."],
+  ["Do I need an account?", "Not to draw or open free charts. A free account adds 5 questions to the oracle a week, an AI reading of one chart a week, your details saved, and readings the oracle remembers."],
+  ["What happens to my birth details?", "They're used to calculate your chart and then discarded, unless you save the chart to your account. See the safety page for the details."],
+  ["Are there ads?", "Visitors without an account and free accounts see a few ads. The paid plan is ad-free."],
   ["Can I cancel?", "Any time, from Manage billing on your account page. You keep the paid plan until the end of the period you've paid for."],
 ];
 
-export function Home({ onDraw, onContinue, onChart, onAccount, onSignUp, auth, billingOn, onPage, onCrisis }) {
+export function Home({ onDraw, onContinue, onChart, onAccount, onSignUp, ads, auth, billingOn, onPage, onCrisis }) {
   const [busy, setBusy] = useState(null);
   const [err, setErr] = useState(null);
   const signedIn = !!(auth && auth.session);
@@ -58,6 +60,8 @@ export function Home({ onDraw, onContinue, onChart, onAccount, onSignUp, auth, b
         <p style={{ margin: "14px 0 0", fontSize: 11, color: T.dim, letterSpacing: 2, textTransform: "uppercase" }}>free · no account needed</p>
         {onContinue && <p style={{ margin: "18px 0 0" }}><button className="link-btn" onClick={onContinue} style={{ fontSize: 14, color: T.purple, fontWeight: 600 }}>or continue your last reading →</button></p>}
       </header>
+
+      {ads && <div style={{ ...section, paddingTop: 0, paddingBottom: 0 }}><AdSlot ads={ads} place="home" onUpgrade={signedIn ? onAccount : onSignUp} /></div>}
 
       {/* ── Two ways in ──────────────────────────────────────────────────── */}
       <section style={section} aria-labelledby="ways">
@@ -118,16 +122,31 @@ export function Home({ onDraw, onContinue, onChart, onAccount, onSignUp, auth, b
       <section id="pricing" style={section} aria-labelledby="price">
         <p style={eyebrow}>pricing</p>
         <h2 id="price" style={h2}>Start free. Go deeper when you want to.</h2>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 14, marginTop: 18, alignItems: "start" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))", gap: 14, marginTop: 18, alignItems: "start" }}>
           <div style={card}>
-            <h3 style={{ ...eyebrow, color: T.muted }}>free</h3>
+            <h3 style={{ ...eyebrow, color: T.muted }}>no account</h3>
             <div style={{ fontFamily: serif, fontSize: 30, color: T.text, marginBottom: 10 }}>$0</div>
             <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14, color: T.muted, lineHeight: 1.9 }}>
               <li>Unlimited I Ching + Tarot readings, interpreted</li>
               <li>All five charts for two people a day</li>
               <li>Transits, a two-week forecast and a chart reference</li>
+              <li>Includes ads</li>
             </ul>
             <button onClick={onDraw} style={{ fontSize: 13, color: T.purple, background: "none", border: "1px solid " + T.purple + "66", borderRadius: 999, padding: "10px 20px", cursor: "pointer", fontWeight: 700, marginTop: 16 }}>draw a reading</button>
+          </div>
+          <div style={card}>
+            <h3 style={{ ...eyebrow, color: T.muted }}>free account</h3>
+            <div style={{ fontFamily: serif, fontSize: 30, color: T.text, marginBottom: 10 }}>$0</div>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14, color: T.muted, lineHeight: 1.9 }}>
+              <li>Everything without an account, plus:</li>
+              <li>5 questions to the oracle a week</li>
+              <li>An AI reading of one chart a week</li>
+              <li>Your birth details saved</li>
+              <li>Your readings and chats kept, and remembered by the oracle</li>
+              <li>Includes ads</li>
+            </ul>
+            {!signedIn && onSignUp && <button onClick={onSignUp} style={{ fontSize: 13, color: "#fff", background: GRAD, border: "none", borderRadius: 999, padding: "10px 20px", cursor: "pointer", fontWeight: 700, marginTop: 16 }}>create a free account</button>}
+            {signedIn && !paid && <p style={{ margin: "14px 0 0", fontSize: 13, color: T.cyan, fontWeight: 600 }}>You have a free account.</p>}
           </div>
           <div style={{ ...card, borderColor: T.purple + "66", background: "linear-gradient(180deg,#ffffff,#f7f2ff)" }}>
             <h3 style={eyebrow}>paid</h3>

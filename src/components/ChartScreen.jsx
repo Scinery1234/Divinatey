@@ -4,6 +4,7 @@ import { DateFields } from "./DateFields.jsx";
 import { findPlaces, makeChart, chartErrorText, saveChartSlot } from "../api.js";
 import { useAstroStyles } from "../astroStyles.js";
 import { PREVIEW } from "../preview.js";
+import { AdSlot } from "./AdSlot.jsx";
 import { ChartChat } from "./ChartChat.jsx";
 import { GuidePanel, ChartReading } from "./ChartGuide.jsx";
 import { loadSession, saveSession } from "../session.js";
@@ -103,7 +104,16 @@ export function PlacePicker({ value, onPick }) {
   );
 }
 
-function LockedAI({ compact }) {
+function LockedAI({ compact, signedOut, onSignUp }) {
+  if (signedOut) return (
+    <div style={{ margin: compact ? "16px 0 0" : "20px 0", padding: compact ? 14 : 18, borderRadius: 14, background: "linear-gradient(135deg,#ede8ff,#fce7f3)", border: "1px solid " + T.purple + "44", fontFamily: "system-ui,sans-serif" }}>
+      <div style={{ fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: T.purple, fontWeight: 700, marginBottom: 6 }}>✦ Free account</div>
+      <p style={{ margin: "0 0 10px", fontSize: 13, lineHeight: 1.7, color: T.muted }}>
+        Create a free account for an AI reading of one chart a week, 5 questions to the oracle, and your details saved.
+      </p>
+      <button onClick={onSignUp} style={{ ...primaryBtn, padding: "8px 18px", fontSize: 13 }}>create a free account ✦</button>
+    </div>
+  );
   return (
     <div style={{ margin: compact ? "16px 0 0" : "20px 0", padding: compact ? 14 : 18, borderRadius: 14, background: "linear-gradient(135deg,#ede8ff,#fce7f3)", border: "1px solid " + T.purple + "44", fontFamily: "system-ui,sans-serif" }}>
       <div style={{ fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: T.purple, fontWeight: 700, marginBottom: 6 }}>{PREVIEW ? "✦ Paid preview" : "✦ Paid plan"}</div>
@@ -125,7 +135,7 @@ function SaveBar({ auth, body, onSignIn }) {
   if (!auth.session && PREVIEW) return null;
   if (!auth.session) return <button onClick={onSignIn} style={{ ...small, color: T.muted, background: "none", border: "1px solid " + T.border }}>sign up to save</button>;
   if (!me) return null;
-  if (me.plan !== "paid") return <span style={{ fontSize: 11, color: T.dim }}>Saving charts is part of the paid plan</span>;
+  const slots = Array.from({ length: me.slots || 1 }, (_, i) => i + 1);     // free accounts: one slot
   const bySlot = Object.fromEntries((me.charts || []).map(c => [c.slot, c]));
   const save = async slot => {
     setBusy(slot); setNote(null);
@@ -135,11 +145,11 @@ function SaveBar({ auth, body, onSignIn }) {
   };
   return (
     <span style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-      {[1, 2].map(slot => {
+      {slots.map(slot => {
         const c = bySlot[slot];
         return <button key={slot} disabled={!!busy} onClick={() => save(slot)} title={c ? "Replaces " + (c.name || "the chart") + " in slot " + slot : "Slot " + slot + " is empty"}
           style={{ ...small, color: T.purple, background: "none", border: "1px solid " + T.purple + "66" }}>
-          {busy === slot ? "saving…" : "save to slot " + slot + (c ? " (replace)" : "")}</button>;
+          {busy === slot ? "saving…" : slots.length === 1 ? (c ? "save (replaces " + (c.name || "your saved chart") + ")" : "save my details") : "save to slot " + slot + (c ? " (replace)" : "")}</button>;
       })}
       {note && <span role="status" style={{ fontSize: 11, color: T.cyan }}>{note}</span>}
     </span>
@@ -159,7 +169,7 @@ function chartClick(e) {
   }
 }
 
-export function ChartScreen({ system, meta, auth, canChat, prefill, onPrefillUsed, onOpenSaved, onSignIn, onAccount, onCrisis }) {
+export function ChartScreen({ system, meta, auth, canChat, aiReading, ads, onUpgrade, prefill, onPrefillUsed, onOpenSaved, onSignIn, onAccount, onCrisis }) {
   useAstroStyles();
   const info = meta && meta[system];
   const needsLocation = info ? info.needsLocation : system === "natal" || system === "vedic";
@@ -264,14 +274,18 @@ export function ChartScreen({ system, meta, auth, canChat, prefill, onPrefillUse
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
             {result.quota && <span style={{ fontSize: 11, color: T.dim }}>free today: {result.quota.used} of {result.quota.max} people</span>}
             <SaveBar auth={auth} body={result.body} onSignIn={onSignIn} />
-            <button onClick={() => setShowRef(true)} style={{ ...primaryBtn, padding: "7px 16px", fontSize: 12 }}>{canChat ? "✦ chart guide" : "✦ chart reference"}</button>
+            <button onClick={() => setShowRef(true)} style={{ ...primaryBtn, padding: "7px 16px", fontSize: 12 }}>{aiReading ? "✦ chart guide" : "✦ chart reference"}</button>
           </div>
         </div>
         <p style={{ fontSize: 12, color: T.dim, margin: "-4px 0 10px", textAlign: "center" }}>Pick another system above to see {result.body && result.body.name ? result.body.name + "'s" : "this person's"} chart there. It opens straight away and doesn't use another free chart.</p>
         <div className="astro" style={vars} onClick={chartClick} dangerouslySetInnerHTML={{ __html: result.html.replace(/\s+on[a-z]+="[^"]*"/gi, "") }} />
-        {canChat ? <div className="astro" style={{ ...vars, marginTop: 16 }}><ChartReading reading={result.reading} chart={result.body} texts={texts} setText={setText} /></div> : <LockedAI />}
+        {ads && <AdSlot ads={ads} place="chart" onUpgrade={onUpgrade} />}
+        {aiReading && !canChat && auth && auth.me && auth.me.free && <p style={{ fontSize: 12, color: T.dim, margin: "14px 0 -6px", textAlign: "center" }}>
+          Free account: an AI reading of one chart a week (this week: {auth.me.free.chartReadings.used} of {auth.me.free.chartReadings.max} used). <button className="link-btn" onClick={onUpgrade} style={{ fontSize: 12, color: T.purple, fontWeight: 600 }}>every chart with paid</button></p>}
+        {aiReading ? <div className="astro" style={{ ...vars, marginTop: 16 }}><ChartReading reading={result.reading} chart={result.body} texts={texts} setText={setText} /></div>
+          : <LockedAI signedOut={auth && auth.enabled && !auth.session} onSignUp={onSignIn} />}
         <ChartChat chart={result.body} canChat={canChat} auth={auth} onSignIn={onSignIn} onAccount={onAccount || onSignIn} onCrisis={onCrisis} />
-        {showRef && <GuidePanel reference={result.reference} chart={result.body} canExplain={canChat} texts={texts} setText={setText}
+        {showRef && <GuidePanel reference={result.reference} chart={result.body} canExplain={aiReading} texts={texts} setText={setText}
           lockedCard={!PREVIEW && <LockedAI compact />} onClose={() => setShowRef(false)} />}
       </div>
     );

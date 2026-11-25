@@ -60,6 +60,10 @@ If the app runs behind a reverse proxy or load balancer, set `TRUST_PROXY=1` so 
 | `CHART_ENCRYPTION_KEY` | (none: saved charts unencrypted, with a warning) | 32 random bytes, base64 (`openssl rand -base64 32`). Encrypts saved charts. **Keep a copy: losing it makes saved charts unreadable** |
 | `CHART_ENCRYPTION_OLD_KEYS` | (none) | Earlier keys, comma-separated, still accepted for reading after a key change |
 | `TURNSTILE_SITE_KEY` | (none: no bot check) | Cloudflare Turnstile site key for sign-up/sign-in; also turn on CAPTCHA protection in Supabase with the secret key |
+| `ADSENSE_CLIENT` | (none: no ads) | AdSense publisher id, `ca-pub-…`. Ads show to signed-out visitors and free accounts; `/ads.txt` is served from it |
+| `ADSENSE_SLOT` | (none) | Ad unit id used for every placement; override per placement with `ADSENSE_SLOT_HOME`, `ADSENSE_SLOT_READING`, `ADSENSE_SLOT_CHART` |
+| `FREE_CHATS_PER_WEEK` | 5 | Oracle chat messages a week for free accounts |
+| `FREE_CHART_READINGS_PER_WEEK` | 1 | Charts a week that get their AI reading and explanations on a free account |
 | `COMP_EMAILS` | (none) | Comma-separated emails whose accounts get the paid plan without paying (owner, testers) |
 | `PAID_PREVIEW` | on | Set to `0` to close the paid preview at `/preview` |
 | `PREVIEW_CHAT_PER_10MIN` | `20` | Chat messages per IP in the preview |
@@ -78,7 +82,7 @@ If a request is declined on policy grounds, it's automatically retried on Anthro
 
 Accounts are optional: drawing and free charts work without them. With Supabase configured, people can sign up with email and password or use a magic link, reset their password, and (on the paid plan) save two charts.
 
-1. Create a Supabase project and run the files in `supabase/migrations/` in order (0001 to 0004) in the SQL editor. 0004 lets saved charts use Numerology.
+1. Create a Supabase project and run the files in `supabase/migrations/` in order (0001 to 0005) in the SQL editor. 0004 lets saved charts use Numerology; 0005 adds free-account allowances and kept readings.
 2. In **Authentication → URL Configuration**, set the Site URL to your domain and add `https://<your-domain>/account` to the redirect URLs. Sign-in links, confirmations and password resets land there.
 3. In **Authentication → Providers → Email**, keep email confirmation on, set the minimum password length to 8 and turn on leaked-password protection.
 4. Set `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` and `FREE_LIMIT_SECRET` on the server.

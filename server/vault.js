@@ -54,11 +54,28 @@ const sealed = birth => !!birth && typeof birth === "object" && birth.v === VERS
 // are sealed the next time they're saved.
 export function withVault(store, vault) {
   if (!vault) return store;
+  // An unreadable reading (key lost) is skipped rather than shown.
+  const openRow = (userId, row) => {
+    if (!sealed(row.data)) return row;
+    const data = vault.open(userId, "reading:" + row.seed, row.data);
+    return data ? { ...row, data } : null;
+  };
   return {
     ...store,
     async saveChart(userId, slot, chart) {
       const box = vault.seal(userId, slot, { name: chart.name || "", birth: chart.birth });
       return store.saveChart(userId, slot, { system: chart.system, name: "", birth: box });
+    },
+    // Saved readings (interpretation and chat) are sealed the same way, bound to their seed.
+    async saveReading(userId, seed, data) {
+      return store.saveReading(userId, seed, vault.seal(userId, "reading:" + seed, data));
+    },
+    async getReading(userId, seed) {
+      const row = await store.getReading(userId, seed);
+      return row && openRow(userId, row);
+    },
+    async listReadings(userId, limit) {
+      return (await store.listReadings(userId, limit)).map(row => openRow(userId, row)).filter(Boolean);
     },
     async listCharts(userId) {
       return (await store.listCharts(userId)).map(row => {

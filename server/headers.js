@@ -1,21 +1,26 @@
 // Browser security headers for every response.
 //
 // The content policy only lets the page load its own scripts (plus Cloudflare
-// Turnstile when sign-up protection is on), talk to this server and Supabase,
+// Turnstile when sign-up protection is on, and Google's ad hosts when ads are on), talk to this server and Supabase,
 // and use Google Fonts. Inline styles stay allowed: the charts are styled inline.
 export function securityHeaders(env = process.env) {
   const origin = u => { try { return new URL(u).origin; } catch { return null; } };
   const supabase = origin(env.SUPABASE_URL || "");
   const turnstile = env.TURNSTILE_SITE_KEY ? "https://challenges.cloudflare.com" : null;
   const list = (...xs) => xs.filter(Boolean).join(" ");
+  // AdSense loads scripts, frames and images from many Google hosts that change
+  // over time, so with ads on those directives allow any https source. Inline
+  // scripts and plain-http sources stay blocked.
+  const ads = /^ca-pub-\d+$/.test(env.ADSENSE_CLIENT || "");
+  const adSrc = ads ? "https:" : null;
   const csp = [
     "default-src 'self'",
-    "script-src " + list("'self'", turnstile),
+    "script-src " + list("'self'", turnstile, adSrc),
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
-    "img-src 'self' data: blob:",
-    "connect-src " + list("'self'", supabase, turnstile),
-    "frame-src " + (turnstile || "'none'"),
+    "img-src " + list("'self' data: blob:", adSrc),
+    "connect-src " + list("'self'", supabase, turnstile, adSrc),
+    "frame-src " + (list(turnstile, adSrc) || "'none'"),
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",

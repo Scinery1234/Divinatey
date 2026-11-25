@@ -62,7 +62,7 @@ before(async () => {
   const port = 18000 + Math.floor(Math.random() * 1000);
   base = "http://localhost:" + port;
   server = spawn(process.execPath, ["server/index.js"], {
-    env: { ...process.env, PORT: String(port), ANTHROPIC_API_KEY: "test", ANTHROPIC_BASE_URL: "http://localhost:" + mock.address().port, AUTH_TEST_TOKENS: "1", SUPABASE_URL: "", SUPABASE_SERVICE_ROLE_KEY: "", SUPABASE_SERVICE_KEY: "" },
+    env: { ...process.env, PORT: String(port), ANTHROPIC_API_KEY: "test", ANTHROPIC_BASE_URL: "http://localhost:" + mock.address().port, AUTH_TEST_TOKENS: "1", RATE_LIMIT_PER_10MIN: "500", SUPABASE_URL: "", SUPABASE_SERVICE_ROLE_KEY: "", SUPABASE_SERVICE_KEY: "" },
     stdio: ["ignore", "pipe", "inherit"],
   });
   await new Promise(r => server.stdout.on("data", r));
@@ -99,15 +99,59 @@ test("draw + interpret", async () => {
   }
 });
 
-test("chat is for paid accounts only", async () => {
+test("chat needs an account; free accounts get 5 messages a week and can't link charts", async () => {
   const { body: { seed } } = await post("/api/draw", {});
   const history = [{ role: "user", text: "hi" }];
   const anon = await post("/api/chat", { seed, history }, "");
   assert.equal(anon.status, 401);
   assert.equal(anon.body.error, "signed_out");
-  const free = await post("/api/chat", { seed, history }, "test:u-free:free@example.com:free");
-  assert.equal(free.status, 403);
-  assert.equal(free.body.error, "paid_required");
+  const F = "test:u-free5:free5@example.com:free";
+  for (let i = 1; i <= 5; i++) {
+    const ok = await post("/api/chat", { seed, history }, F);
+    assert.equal(ok.status, 200);
+    assert.deepEqual(ok.body.chats, { used: i, max: 5 });
+  }
+  const over = await post("/api/chat", { seed, history }, F);
+  assert.equal(over.status, 429);
+  assert.deepEqual(over.body, { error: "chat_limit", used: 5, max: 5 });
+  const chart = { system: "natal", date: "1990-07-15", time: "14:30", tz: "Australia/Sydney", lat: -33.87, lon: 151.21 };
+  assert.equal((await post("/api/chat", { seed, history, charts: [chart] }, "test:u-free6:f6@example.com:free")).body.error, "paid_required");
+  assert.equal((await post("/api/chart-chat", { chart, history }, "test:u-free6:f6@example.com:free")).body.error, "paid_required", "chart chat stays paid");
+  const paid = await post("/api/chat", { seed, history });
+  assert.equal(paid.status, 200);
+  assert.equal(paid.body.chats, undefined, "no allowance on paid accounts");
+});
+
+test("signed-in chats are kept, and the oracle remembers earlier draws (facts only)", async () => {
+  const U = "test:u-mem:mem@example.com:paid";
+  const auth = { authorization: "Bearer " + U, "content-type": "application/json" };
+  const first = (await post("/api/draw", {})).body.seed;
+  await fetch(base + "/api/interpret", { method: "POST", headers: auth, body: JSON.stringify({ seed: first }) });
+  await post("/api/chat", { seed: first, history: [{ role: "user", text: "Should I move to Lisbon?" }] }, U);
+  const second = (await post("/api/draw", {})).body.seed;
+  requests.length = 0;
+  await post("/api/chat", { seed: second, history: [{ role: "user", text: "And now?" }] }, U);
+  const sys = requests[0].body.system;
+  assert.match(sys, /Earlier readings this person has drawn/);
+  assert.match(sys, /They asked: "Should I move to Lisbon\?"/);
+  assert.doesNotMatch(sys, /A warm reply/, "earlier AI replies are not fed back in");
+
+  const list = await (await fetch(base + "/api/me/readings", { headers: auth })).json();
+  assert.deepEqual(list.readings.map(r => r.seed), [String(second), String(first)]);
+  assert.equal(list.readings[1].question, "Should I move to Lisbon?");
+  const one = await (await fetch(base + "/api/me/readings/" + first, { headers: auth })).json();
+  assert.equal(one.seed, first);
+  assert.ok(one.interp && one.interp.synthesis, "interpretation kept");
+  assert.deepEqual(one.messages.map(m => m.role), ["user", "assistant"]);
+  assert.equal((await fetch(base + "/api/me/readings/" + first, { headers: { authorization: "Bearer test:u-other9:o@example.com:paid" } })).status, 404, "per account");
+  await fetch(base + "/api/me/readings/" + first, { method: "DELETE", headers: auth });
+  assert.equal((await fetch(base + "/api/me/readings/" + first, { headers: auth })).status, 404);
+  await fetch(base + "/api/me/readings/all", { method: "DELETE", headers: auth });
+  assert.deepEqual((await (await fetch(base + "/api/me/readings", { headers: auth })).json()).readings, []);
+  // Signed out: nothing kept, no memory.
+  requests.length = 0;
+  await post("/api/interpret", { seed: second });
+  assert.ok(requests.length > 0);
 });
 
 test("chat validates history and handles refusals", async () => {
@@ -154,7 +198,13 @@ test("chart chat: paid only, recalculated chart in the prompt, one system only",
 test("chart explanations and readings: paid only, one prompt per item, cached", async () => {
   const chart = { system: "natal", name: "Ava", date: "1990-07-15", time: "14:30", tz: "Australia/Sydney", lat: -33.87, lon: 151.21 };
   assert.equal((await post("/api/chart-explain", { chart, tab: "planets", item: 1 }, "")).status, 401);
-  assert.equal((await post("/api/chart-explain", { chart, tab: "planets", item: 1 }, "test:u-free:f@example.com:free")).status, 403);
+  // Free accounts: one chart a week gets its AI reading and explanations.
+  const F = "test:u-freeread:fr@example.com:free";
+  assert.equal((await post("/api/chart-explain", { chart, tab: "planets", item: 0 }, F)).status, 200);
+  assert.equal((await post("/api/chart-reading", { chart, section: 1, technical: false }, F)).status, 200, "same chart, same week");
+  const other = await post("/api/chart-explain", { chart: { ...chart, date: "1985-01-02" }, tab: "planets", item: 0 }, F);
+  assert.equal(other.status, 429);
+  assert.deepEqual(other.body, { error: "reading_limit", used: 1, max: 1 });
 
   requests.length = 0;
   const a = await post("/api/chart-explain", { chart, tab: "planets", item: 1 }, PAID);

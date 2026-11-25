@@ -41,8 +41,16 @@ function knownPeople(auth) {
 
 // A single button under the reading. Choosing charts happens in the side panel;
 // once linked, the button becomes a short summary with edit and unlink.
-export function LinkBar({ linked, onChange, auth, disabled }) {
+export function LinkBar({ linked, onChange, auth, disabled, locked, onLocked }) {
   const [open, setOpen] = useState(false);
+  // Free accounts see the feature, labelled as part of the paid plan.
+  if (locked) return (
+    <div style={{ margin: "4px 0 14px", textAlign: "center" }}>
+      <button onClick={onLocked} style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.3, padding: "9px 18px", borderRadius: 999, cursor: "pointer", border: "1px solid " + T.purple + "66", background: T.surface, color: T.purple }}>
+        ✦ bring in my charts <span style={{ fontSize: 10, color: T.dim, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>· paid</span></button>
+      <p style={{ margin: "6px 0 0", fontSize: 11, color: T.dim, lineHeight: 1.6 }}>With the paid plan, the oracle can draw on your birth charts too.</p>
+    </div>
+  );
   const systems = (linked && linked.systems) || [];
   const p = linked && linked.person;
   const on = systems.length > 0 && p;

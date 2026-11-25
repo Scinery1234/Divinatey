@@ -32,7 +32,8 @@ async function call(method, path, body, withAuth) {
 const post = (path, body) => call("POST", path, body || {}, false);
 
 export const drawReading = () => post("/api/draw");
-export const interpret = seed => post("/api/interpret", { seed });
+// Signed in, the server keeps the reading with the account.
+export const interpret = seed => call("POST", "/api/interpret", { seed }, true);
 // `interp` is what the page shows about the reading; the server prefers its own copy.
 export const askOracle = (seed, synthesis, history, charts, interp) =>
   call("POST", "/api/chat", {
@@ -65,6 +66,9 @@ export const getConfig = () => get("/api/config");
 export const getMe = () => call("GET", "/api/me", undefined, true);
 export const saveChartSlot = (slot, body) => call("PUT", "/api/charts/" + slot, body, true);
 export const deleteChartSlot = slot => call("DELETE", "/api/charts/" + slot, undefined, true);
+export const listPastReadings = () => call("GET", "/api/me/readings", undefined, true);
+export const getPastReading = seed => call("GET", "/api/me/readings/" + encodeURIComponent(seed), undefined, true);
+export const deletePastReading = seed => call("DELETE", "/api/me/readings/" + encodeURIComponent(seed), undefined, true);
 export const exportMyData = () => call("GET", "/api/me/export", undefined, true);
 export const deleteMyAccount = () => call("DELETE", "/api/me", { confirm: "DELETE" }, true);
 
@@ -102,7 +106,10 @@ export function oracleErrorText(err) {
     if (err.code === "no_server") return "The oracle isn't reachable: this site is running without Divinatey's server. (Error: no_server)";
     if (err.code === "upstream") return upstreamText(err);
     if (err.code === "internal") return "Something went wrong on our side. Try again in a moment. (Error 500)";
-    if (err.code === "paid_required" || err.code === "signed_out") return "Chat with the oracle is part of the paid plan.";
+    if (err.code === "signed_out") return "Create a free account (or sign in) to chat with the oracle.";
+    if (err.code === "paid_required") return "That's part of the paid plan.";
+    if (err.code === "chat_limit") return "You've used this week's free questions. They come back on Monday, or go unlimited with the paid plan.";
+    if (err.code === "reading_limit") return "Your free chart reading this week has gone to another chart. It resets on Monday, or the paid plan opens every chart.";
     if (err.code === "question_limit") return "You've asked this week's 5 questions with your charts linked. Unlink your charts to keep chatting, come back next week, or ask anyway for $5.";
     if (err.status === 429) return "The oracle needs a moment to rest. Try again in a few minutes.";
     if (err.code === "refused") return "The oracle can't speak to that one. Try asking another way.";

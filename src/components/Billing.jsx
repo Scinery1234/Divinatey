@@ -8,11 +8,12 @@ export const PLANS = [
   { kind: "yearly", name: "Yearly", price: "$180", per: "a year", note: "Save $60 · two months free" },
 ];
 export const PAID_FEATURES = [
-  "Chat with the oracle about every reading",
+  "Unlimited chat with the oracle about every reading",
   "Bring your birth charts into your questions: 5 a week, $5 for each extra",
   "AI explanations of every placement, and a reading of your chart against today's sky",
   "Chat about your charts",
   "Two saved charts and no daily chart limit",
+  "No ads",
 ];
 
 const primary = { background: GRAD, border: "none", borderRadius: 999, color: "#fff", fontWeight: 700, cursor: "pointer", letterSpacing: 0.5 };

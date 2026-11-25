@@ -118,12 +118,19 @@ export function describeInterpretation(interp) {
   return out.join("\n");
 }
 
-export function chat(r, synthesis, history, interp) {
+// What the oracle is told about the person's earlier draws: dates, what was drawn
+// and their own first question. Facts only, never earlier AI text.
+const memoryNote = memory => memory
+  ? "Earlier readings this person has drawn (background only: bring one up only if it genuinely connects, and say so plainly):\n" + memory + "\n\n"
+  : "";
+
+export function chat(r, synthesis, history, interp, memory) {
   const shown = describeInterpretation(interp);
   const system =
     "You are the Digital Oracle of Divinatey. The person has drawn this reading — "+describeReading(r)+
     (synthesis ? ". The synthesis they were shown: \""+synthesis+"\"" : "")+".\n\n"+
     (shown ? "What their reading page says about each part (stay consistent with it, building on it rather than repeating it):\n"+shown+"\n\n" : "")+
+    memoryNote(memory)+
     "When they share what's on their mind, reinterpret the reading through that lens, with specific references to the hexagram and cards. "+
     "Respond in plain text (no markdown), warm, poetic and grounded, 3-5 sentences, ending with one reflective question.\n\n"+
     "This is a tool for reflection, not prediction or professional advice. If the person describes a medical, legal or financial decision, "+
@@ -214,7 +221,7 @@ function interleave(charts) {
   return out;
 }
 
-export async function linkedChat(r, synthesis, history, charts, interp) {
+export async function linkedChat(r, synthesis, history, charts, interp, memory) {
   const shown = describeInterpretation(interp);
   const t0 = Date.now(), times = {};
   const step = async (name, fn) => { const t = Date.now(); try { return await fn(); } finally { times[name] = Date.now() - t; } };
@@ -245,6 +252,7 @@ export async function linkedChat(r, synthesis, history, charts, interp) {
       "Their draw: " + describeReading(r) + (synthesis ? "\nThe synthesis they were shown: \"" + synthesis + "\"" : "") +
       (shown ? "\nWhat their reading page says about each part (stay consistent with it):\n" + shown : "") +
       "\n\nConversation so far:\n" + transcript(history) +
+      (memory ? "\n\n" + memoryNote(memory).trim() : "") +
       "\n\nRelevant facts from the charts they chose to link:\n" + (facts.map(k => k.id + " | " + k.label + " | " + k.text).join("\n") || "(none apply)") +
       "\n\ndraw: what the hexagram and the cards (both, not just one) say about their latest message, consistent with what their page already says (2-3 sentences).\n" +
       "chart: what the chart facts add (2-4 sentences), or an empty string if none apply. " + (charts.length > 1 ? "Give each linked chart (" + names + ") its own say; don't let one system carry the answer. " : "") + "\n" +

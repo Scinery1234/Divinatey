@@ -24,7 +24,7 @@ function Section({ kick, title, intro, children }) {
 function Glance() {
   const stats = [
     ["0", "names, places or emails sent to the AI"],
-    ["2", "charts at most, and only if you save them"],
+    ["2", "saved charts at most, and only if you save them"],
     ["1 step", "to download or delete everything"],
   ];
   return (
@@ -119,10 +119,11 @@ function Ledger() {
         {col(true, "Kept with an account", [
           ["✉️", "Your email address and your plan"],
           ["🔒", "Up to two charts you choose to save, with coordinates rounded to about 1 km and no place name"],
-          ["📅", "Which weeks you linked charts to a reading, to count your allowance"],
+          ["🔮", "Readings you draw while signed in, with their chat, so you can return to them (delete any or all)"],
+          ["📅", "Weekly counts of your free questions and linked charts"],
         ])}
         {col(false, "Never kept", [
-          ["💬", "Your readings and chat messages"],
+          ["💬", "Readings and chats when you're signed out"],
           ["🌙", "Charts you don't save"],
           ["💳", "Card numbers (Stripe handles payments)"],
           ["🌐", "Your IP address: only a scrambled daily count for the free limit, cleared each day"],
@@ -172,6 +173,7 @@ function AiSafety() {
     ["🧭", "Reflection, not advice", "The AI is told this is a tool for reflection, not prediction. For medical, legal or money decisions it points you to a professional."],
     ["🙈", "It doesn't know who you are", "Names, places, coordinates and emails are removed before anything reaches the AI. An automated test checks this."],
     ["🛑", "It can say no", "If a request isn't something the AI should answer, it declines and you see a gentle message rather than a made-up reading."],
+    ["🧠", "Memory from facts only", "When the oracle recalls your earlier readings, it's given the date, what was drawn and your first question, never its own earlier replies."],
     ["⏱", "Fair-use limits", "Rate limits on chats and charts stop the service being flooded or abused."],
     ["🧂", "A grain of salt", "AI can be wrong. Every page reminds you that readings are for reflection and entertainment."],
   ];
@@ -195,7 +197,7 @@ function AiSafety() {
 // ── 6. You're in control ──────────────────────────────────────────────────────
 function Control() {
   const steps = [
-    ["1", "Choose", "Nothing is saved unless you press save. Free charts are never stored."],
+    ["1", "Choose", "Birth details are saved only when you press save. Readings are kept only while you're signed in."],
     ["2", "Download", "Your account page has “Download my data”: everything we keep, in one file."],
     ["3", "Delete", "“Delete my account” removes your account, saved charts and history at once, and ends any subscription."],
   ];
@@ -231,6 +233,15 @@ export function SafetyPage({ onPage }) {
       <Layers />
       <AiSafety />
       <Control />
+      <Section kick="Ads" title="About the ads" intro="Ads help keep the free tiers free. Here's how they work.">
+        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
+          {[["📢", "Visitors without an account and free accounts see a few ads from Google AdSense. The paid plan has none."],
+            ["🍪", "Google may use cookies to choose and measure ads. Where the law requires it, you're asked first, and you can change ad personalisation in your Google ad settings."],
+            ["🚫", "Ads never see your birth details, readings or chats."]].map(([icon, text]) => (
+            <li key={icon} style={{ display: "flex", gap: 8, fontSize: 13, color: T.text, lineHeight: 1.6 }}><span aria-hidden="true">{icon}</span><span>{text}</span></li>
+          ))}
+        </ul>
+      </Section>
       <p style={{ fontSize: 12, color: T.dim, lineHeight: 1.7, margin: "8px 0 0" }}>
         The full details are in the{" "}
         <a href="/privacy" onClick={e => { if (onPage) { e.preventDefault(); onPage("privacy"); } }} style={{ color: T.purple, fontWeight: 600 }}>privacy policy</a>.

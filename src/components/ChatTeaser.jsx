@@ -37,8 +37,8 @@ export function ChatTeaser({ reading, questions, preview, auth, onSignIn, onAcco
   let cta;
   if (!accountsOn) cta = <p style={note}>Chat opens with the paid plan, coming soon.</p>;
   else if (!signedIn) cta = <>
-    <button onClick={onSignIn} style={{ ...primary, padding: "12px 28px", fontSize: 15 }}>sign in to continue ✦</button>
-    <p style={note}>Chat is part of the paid plan: $20/month or $180/year.</p>
+    <button onClick={onSignIn} style={{ ...primary, padding: "12px 28px", fontSize: 15 }}>create a free account ✦</button>
+    <p style={note}>Free accounts ask the oracle 5 questions a week. Unlimited and ad-free with the paid plan.</p>
   </>;
   else cta = <>
     <button onClick={onAccount} style={{ ...primary, padding: "12px 28px", fontSize: 15 }}>see the paid plan ✦</button>
@@ -46,11 +46,11 @@ export function ChatTeaser({ reading, questions, preview, auth, onSignIn, onAcco
   </>;
 
   return (
-    <section ref={innerRef} aria-label="Chat with the oracle (paid plan)" className={pulse ? "teaser-pulse" : undefined}
+    <section ref={innerRef} aria-label="Chat with the oracle" className={pulse ? "teaser-pulse" : undefined}
       style={{ margin: "4px 0 20px", padding: 18, borderRadius: 18, border: "1px solid " + T.purple + "44", background: "linear-gradient(180deg,#ffffff,#f4efff)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginBottom: 12 }}>
         <div style={{ fontSize: 9, letterSpacing: 2, color: T.purple, textTransform: "uppercase", fontWeight: 700 }}>continue the conversation</div>
-        <div style={{ fontSize: 10, color: T.dim, fontWeight: 600 }}>🔒 paid plan</div>
+        <div style={{ fontSize: 10, color: T.dim, fontWeight: 600 }}>{accountsOn && !signedIn ? "🔒 free account" : "🔒 paid plan"}</div>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>

@@ -79,6 +79,28 @@ function supabaseStore(url, serviceKey) {
     async recordLinked(userId, weekStart, seed) {
       must(await sb.from("linked_questions").upsert({ user_id: userId, week_start: weekStart, seed }, { ignoreDuplicates: true }));
     },
+    // Free-account allowances: one row per use, keyed so repeats don't count twice.
+    async usageKeys(userId, weekStart, kind) {
+      return new Set(must(await sb.from("account_usage").select("key").eq("user_id", userId).eq("week_start", weekStart).eq("kind", kind)).map(r => r.key));
+    },
+    async recordUse(userId, weekStart, kind, key) {
+      must(await sb.from("account_usage").upsert({ user_id: userId, week_start: weekStart, kind, key }, { ignoreDuplicates: true }));
+    },
+    // Past draws with their interpretation and chat, newest first.
+    async listReadings(userId, limit = 50) {
+      return must(await sb.from("readings").select("seed, data, created_at, updated_at").eq("user_id", userId).order("updated_at", { ascending: false }).limit(limit));
+    },
+    async getReading(userId, seed) {
+      const rows = must(await sb.from("readings").select("seed, data, created_at, updated_at").eq("user_id", userId).eq("seed", String(seed)).limit(1));
+      return rows[0] || null;
+    },
+    async saveReading(userId, seed, data) {
+      must(await sb.from("readings").upsert({ user_id: userId, seed: String(seed), data, updated_at: new Date().toISOString() }, { onConflict: "user_id,seed" }));
+    },
+    async deleteReading(userId, seed) {
+      const q = sb.from("readings").delete().eq("user_id", userId);
+      must(await (seed == null ? q : q.eq("seed", String(seed))));
+    },
     async listLinked(userId) {
       return must(await sb.from("linked_questions").select("week_start, seed").eq("user_id", userId).order("week_start"));
     },
@@ -88,6 +110,8 @@ function supabaseStore(url, serviceKey) {
     async deleteUser(userId) {
       must(await sb.from("charts").delete().eq("user_id", userId));
       must(await sb.from("linked_questions").delete().eq("user_id", userId));
+      must(await sb.from("readings").delete().eq("user_id", userId));
+      must(await sb.from("account_usage").delete().eq("user_id", userId));
       const { error } = await sb.auth.admin.deleteUser(userId);
       if (error && error.status !== 404) throw error;
       must(await sb.from("profiles").delete().eq("id", userId));
@@ -101,7 +125,10 @@ function memoryStore({ testTokens }) {
   const linked = new Map();       // userId|weekStart → Set(seed)
   const profiles = new Map();     // userId → profile fields set by billing
   const events = new Set();
-  const deleted = new Set();      // test accounts that were deleted stop signing in
+  const deleted = new Set();
+  const uses = new Map();         // userId|weekStart|kind → Set(key)
+  const readings = new Map();     // userId → Map(seed → {data, created_at, updated_at})
+  let counter = 0;      // test accounts that were deleted stop signing in
   const prof = id => { if (!profiles.has(id)) profiles.set(id, {}); return profiles.get(id); };
   return {
     accounts: !!testTokens,
@@ -152,13 +179,38 @@ function memoryStore({ testTokens }) {
       if (!linked.has(k)) linked.set(k, new Set());
       linked.get(k).add(String(seed));
     },
+    async usageKeys(userId, weekStart, kind) { return new Set(uses.get([userId, weekStart, kind].join("|")) || []); },
+    async recordUse(userId, weekStart, kind, key) {
+      const k = [userId, weekStart, kind].join("|");
+      if (!uses.has(k)) uses.set(k, new Set());
+      uses.get(k).add(key);
+    },
+    async listReadings(userId, limit = 50) {
+      return [...(readings.get(userId) || new Map()).entries()].map(([seed, v]) => ({ seed, ...v }))
+        .sort((a, b) => b.updated_at.localeCompare(a.updated_at) || b.n - a.n).slice(0, limit).map(({ n, ...v }) => v);
+    },
+    async getReading(userId, seed) {
+      const v = readings.get(userId)?.get(String(seed));
+      if (!v) return null;
+      const { n, ...rest } = v;
+      return { seed: String(seed), ...rest };
+    },
+    async saveReading(userId, seed, data) {
+      if (!readings.has(userId)) readings.set(userId, new Map());
+      const m = readings.get(userId), old = m.get(String(seed)), now = new Date().toISOString();
+      m.set(String(seed), { data, created_at: old ? old.created_at : now, updated_at: now, n: ++counter });
+    },
+    async deleteReading(userId, seed) {
+      if (seed == null) readings.delete(userId); else readings.get(userId)?.delete(String(seed));
+    },
     async listLinked(userId) {
       const out = [];
       for (const [k, seeds] of linked) if (k.startsWith(userId + "|")) for (const seed of seeds) out.push({ week_start: k.slice(userId.length + 1), seed });
       return out.sort((a, b) => a.week_start.localeCompare(b.week_start));
     },
     async deleteUser(userId) {
-      charts.delete(userId); profiles.delete(userId); deleted.add(userId);
+      charts.delete(userId); profiles.delete(userId); readings.delete(userId); deleted.add(userId);
+      for (const k of [...uses.keys()]) if (k.startsWith(userId + "|")) uses.delete(k);
       for (const k of [...linked.keys()]) if (k.startsWith(userId + "|")) linked.delete(k);
     },
   };

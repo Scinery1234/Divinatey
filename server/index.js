@@ -1,8 +1,9 @@
 import express from "express";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
-import { divineReading, isValidSeed } from "../shared/oracle.js";
+import { divineReading, isValidSeed, describeReading } from "../shared/oracle.js";
 import { getQuantumSeed } from "./seed.js";
 import { interpretReading, chat, chartChat, writeText, linkedChat, OracleRefusal } from "./oracle-ai.js";
 import { rateLimit } from "./rate-limit.js";
@@ -123,12 +124,13 @@ function interpretationFor(seed, reading, fromClient) {
   };
 }
 
-app.post("/api/interpret", aiLimit, async (req, res) => {
+app.post("/api/interpret", aiLimit, (req, res, next) => identifyOptional(req, res, next), async (req, res) => {
   const reading = readingFrom(req, res);
   if (!reading) return;
   try {
     const out = await interpretReading(reading);
     rememberInterpretation(req.body.seed, out);
+    if (req.user) await keepReading(req.user.id, req.body.seed, { interp: out });
     res.json(out);
   } catch (err) {
     sendError(res, err);
@@ -143,12 +145,39 @@ function validHistory(history) {
       m.role === (i % 2 === 0 ? "user" : "assistant"));
 }
 
-// Chat is part of the paid plan. (identify, requireUser and requirePaid are
-// defined with the account routes below; they're looked up per request.)
-// In the paid preview anyone may chat, under a tighter per-IP limit.
+// Chat needs an account: paid accounts chat freely, free accounts get
+// FREE_CHATS_PER_WEEK oracle messages a week (linking charts stays paid).
+// (identify and requireUser are defined with the account routes
+// below; they're looked up per request.) In the paid preview anyone may chat,
+// under a tighter per-IP limit.
+const FREE_CHATS = Number(process.env.FREE_CHATS_PER_WEEK) || 5;
+const FREE_CHART_READINGS = Number(process.env.FREE_CHART_READINGS_PER_WEEK) || 1;
 const chatAccess = (req, res, next) => req.preview
-  ? previewChatLimit(req, res, next)
-  : identify(req, res, () => requireUser(req, res, () => requirePaid(req, res, next)));
+  ? identifyOptional(req, res, () => previewChatLimit(req, res, next))
+  : identify(req, res, () => requireUser(req, res, () => {
+    if (req.user.plan === "paid") return next();
+    if (req.path === "/api/chat" && !(Array.isArray(req.body.charts) && req.body.charts.length)) { req.freeChat = true; return next(); }
+    res.status(403).json({ error: "paid_required" });
+  }));
+
+// A draw kept with the account: its interpretation and the chat about it.
+async function keepReading(userId, seed, patch) {
+  try {
+    const old = await store.getReading(userId, seed);
+    await store.saveReading(userId, seed, { ...(old ? old.data : {}), ...patch });
+  } catch (err) { console.error("Couldn't keep the reading:", err.message || err); }
+}
+// The oracle's memory of earlier draws: when, what was drawn and the person's own
+// first question. Built from stored facts only, never from earlier AI replies.
+async function memoryFor(userId, seed) {
+  try {
+    const rows = (await store.listReadings(userId, 6)).filter(r => r.seed !== String(seed)).slice(0, 5);
+    return rows.map(r => {
+      const first = (r.data.messages || []).find(m => m.role === "user");
+      return "- " + r.created_at.slice(0, 10) + ": " + describeReading(divineReading(Number(r.seed))) + (first ? ". They asked: \"" + first.text.slice(0, 200) + "\"" : "");
+    }).join("\n");
+  } catch (err) { console.error("Couldn't load reading history:", err.message || err); return ""; }
+}
 app.post("/api/chat", aiLimit, chatAccess, async (req, res) => {
   const reading = readingFrom(req, res);
   if (!reading) return;
@@ -170,8 +199,23 @@ app.post("/api/chat", aiLimit, chatAccess, async (req, res) => {
       return sendError(res, err);
     }
   }
+  const memory = req.user ? await memoryFor(req.user.id, req.body.seed) : "";
+  const keep = reply => req.user && keepReading(req.user.id, req.body.seed, { messages: [...history, { role: "assistant", text: reply }].slice(-60) });
   if (!charts.length) {
-    try { return res.json({ reply: await chat(reading, synth, trimmed, interp) }); }
+    try {
+      let chats = null;
+      if (req.freeChat) {
+        const used = await store.usageKeys(req.user.id, weekStart(), "chat");
+        if (used.size >= FREE_CHATS) return res.status(429).json({ error: "chat_limit", used: used.size, max: FREE_CHATS });
+      }
+      const reply = await chat(reading, synth, trimmed, interp, memory);
+      if (req.freeChat) {
+        await store.recordUse(req.user.id, weekStart(), "chat", crypto.randomUUID());
+        chats = { used: (await store.usageKeys(req.user.id, weekStart(), "chat")).size, max: FREE_CHATS };
+      }
+      await keep(reply);
+      return res.json({ reply, ...(chats ? { chats } : {}) });
+    }
     catch (err) { return sendError(res, err); }
   }
 
@@ -190,7 +234,8 @@ app.post("/api/chat", aiLimit, chatAccess, async (req, res) => {
         useExtra = true;
       }
     }
-    const out = await linkedChat(reading, synth, trimmed, charts, interp);
+    const out = await linkedChat(reading, synth, trimmed, charts, interp, memory);
+    await keep(out.reply);
     let questions = null;
     if (counted) {
       if (useExtra) await store.useExtraQuestion(req.user.id);     // charged only once the answer is ready
@@ -244,26 +289,45 @@ async function identifyUser(req, res, next, optional) {
   }
 }
 const requireUser = (req, res, next) => req.user ? next() : res.status(401).json({ error: "signed_out" });
-const requirePaid = (req, res, next) => req.user.plan === "paid" ? next() : res.status(403).json({ error: "paid_required" });
 const slotParam = (req, res) => {
   const slot = Number(req.params.slot);
   if (!SLOTS.includes(slot)) { res.status(400).json({ error: "invalid slot" }); return null; }
   return slot;
 };
 
+// Google AdSense, for signed-out visitors and free accounts (paid accounts and
+// the preview are ad-free; the browser decides who sees slots, from /api/me).
+// ADSENSE_CLIENT is the publisher id (ca-pub-…); slot ids per placement.
+const ADSENSE = /^ca-pub-\d{10,20}$/.test(process.env.ADSENSE_CLIENT || "") ? {
+  client: process.env.ADSENSE_CLIENT,
+  slots: Object.fromEntries(["home", "reading", "chart"].map(k => [k, process.env["ADSENSE_SLOT_" + k.toUpperCase()] || process.env.ADSENSE_SLOT || ""]).filter(([, v]) => /^\d+$/.test(v))),
+} : null;
+if (process.env.ADSENSE_CLIENT && !ADSENSE) console.warn("ADSENSE_CLIENT should look like ca-pub-1234567890123456; ads are off.");
+// ads.txt tells ad buyers this site's inventory is sold by this publisher.
+app.get("/ads.txt", (req, res) => {
+  if (!ADSENSE) return res.status(404).type("text/plain").send("");
+  res.type("text/plain").send("google.com, " + ADSENSE.client.replace(/^ca-/, "") + ", DIRECT, f08c47fec0942fa0\n");
+});
+
 // The anon key is public by design: the browser needs it to sign in.
 app.get("/api/config", (req, res) => {
   const url = process.env.SUPABASE_URL, anonKey = process.env.SUPABASE_ANON_KEY;
   res.json({ auth: url && anonKey ? { url, anonKey } : null, preview: PREVIEW_ON, billing: !!billing,
-    ...(process.env.TURNSTILE_SITE_KEY ? { captcha: process.env.TURNSTILE_SITE_KEY } : {}) });
+    ...(process.env.TURNSTILE_SITE_KEY ? { captcha: process.env.TURNSTILE_SITE_KEY } : {}),
+    ...(ADSENSE ? { ads: ADSENSE } : {}) });
 });
 
 app.get("/api/me", accountLimit, identify, requireUser, async (req, res) => {
   try {
     const p = await store.getProfile(req.user.id, req.user);
     const asked = await store.linkedSeeds(req.user.id, weekStart());
+    const paid = req.user.plan === "paid";
+    const free = paid ? null : {
+      chats: { used: (await store.usageKeys(req.user.id, weekStart(), "chat")).size, max: FREE_CHATS },
+      chartReadings: { used: (await store.usageKeys(req.user.id, weekStart(), "chart_reading")).size, max: FREE_CHART_READINGS },
+    };
     res.json({
-      email: req.user.email, plan: req.user.plan, slots: SLOTS.length, charts: await store.listCharts(req.user.id),
+      email: req.user.email, plan: req.user.plan, slots: paid ? SLOTS.length : 1, charts: await store.listCharts(req.user.id), free,
       billing: {
         enabled: !!billing, subscribed: !!p.subscription_id && p.plan === "paid", status: p.subscription_status || null,
         interval: p.billing_interval || null, renewsAt: p.plan_renews_at || null, cancelAtPeriodEnd: !!p.cancel_at_period_end,
@@ -288,7 +352,8 @@ app.get("/api/me/export", accountLimit, identify, requireUser, async (req, res) 
         stripe_customer_id: p.stripe_customer_id },
       saved_charts: (await store.listCharts(req.user.id)).map(c => ({ slot: c.slot, system: c.system, name: c.name, birth: c.birth, saved_at: c.updated_at, ...(c.locked ? { locked: true } : {}) })),
       linked_questions: await store.listLinked(req.user.id),
-      not_kept: "Readings, chats and unsaved charts are never stored. Payment cards are held by Stripe, not Divinatey.",
+      readings: (await store.listReadings(req.user.id, 1000)).map(r => ({ seed: r.seed, drawn_at: r.created_at, ...r.data })),
+      not_kept: "Unsaved charts are never stored. Payment cards are held by Stripe, not Divinatey.",
     };
     res.set("Content-Disposition", 'attachment; filename="divinatey-my-data.json"');
     res.set("Cache-Control", "no-store");
@@ -311,9 +376,37 @@ app.delete("/api/me", accountLimit, identify, requireUser, async (req, res) => {
   }
 });
 
-app.put("/api/charts/:slot", accountLimit, identify, requireUser, requirePaid, async (req, res) => {
+// Past readings kept with the account.
+app.get("/api/me/readings", accountLimit, identify, requireUser, async (req, res) => {
+  try {
+    const rows = await store.listReadings(req.user.id, 50);
+    res.json({ readings: rows.map(row => {
+      const r = divineReading(Number(row.seed)), msgs = row.data.messages || [];
+      const first = msgs.find(m => m.role === "user");
+      return { seed: row.seed, drawnAt: row.created_at, updatedAt: row.updated_at, hexagram: r.pHex + " " + r.pName,
+        cards: r.cards.map(c => c.name), question: first ? first.text.slice(0, 140) : "", messages: msgs.length };
+    }) });
+  } catch (err) { sendError(res, err); }
+});
+app.get("/api/me/readings/:seed", accountLimit, identify, requireUser, async (req, res) => {
+  if (!isValidSeed(Number(req.params.seed))) return res.status(400).json({ error: "invalid seed" });
+  try {
+    const row = await store.getReading(req.user.id, req.params.seed);
+    if (!row) return res.status(404).json({ error: "not_found" });
+    const seed = Number(row.seed);
+    if (row.data.interp) rememberInterpretation(seed, row.data.interp);
+    res.json({ seed, reading: divineReading(seed), interp: row.data.interp || null, messages: row.data.messages || [], drawnAt: row.created_at });
+  } catch (err) { sendError(res, err); }
+});
+app.delete("/api/me/readings/:seed", accountLimit, identify, requireUser, async (req, res) => {
+  try { await store.deleteReading(req.user.id, req.params.seed === "all" ? null : req.params.seed); res.json({ deleted: true }); }
+  catch (err) { sendError(res, err); }
+});
+
+app.put("/api/charts/:slot", accountLimit, identify, requireUser, async (req, res) => {
   const slot = slotParam(req, res);
   if (!slot) return;
+  if (req.user.plan !== "paid" && slot !== 1) return res.status(403).json({ error: "paid_required" });   // free accounts: one slot
   let inp;
   try {
     inp = parseChartInput(req.body);
@@ -411,8 +504,21 @@ app.post("/api/chart-chat", aiLimit, chatAccess, async (req, res) => {
 // ── Chart explanations and readings (paid / preview) ─────────────────────────
 // Each is one independent call built on the server from the recalculated
 // chart. Identical prompts within an hour reuse the answer, to save cost.
+// Paid accounts: unlimited. Free accounts: FREE_CHART_READINGS charts a week get
+// their AI reading and explanations (the same chart can be revisited all week).
 const paidAccess = (req, res, next) => req.preview ? next()
-  : identify(req, res, () => requireUser(req, res, () => requirePaid(req, res, next)));
+  : identify(req, res, () => requireUser(req, res, async () => {
+    if (req.user.plan === "paid") return next();
+    let inp;
+    try { inp = parseChartInput(req.body.chart); } catch { return next(); }    // the route answers 400
+    const key = crypto.createHash("sha256").update(inp.system + "|" + chartKey(inp)).digest("hex").slice(0, 32);
+    try {
+      const used = await store.usageKeys(req.user.id, weekStart(), "chart_reading");
+      if (!used.has(key) && used.size >= FREE_CHART_READINGS) return res.status(429).json({ error: "reading_limit", used: used.size, max: FREE_CHART_READINGS });
+      if (!used.has(key)) await store.recordUse(req.user.id, weekStart(), "chart_reading", key);
+      next();
+    } catch (err) { sendError(res, err); }
+  }));
 const explainLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: Number(process.env.EXPLAIN_PER_10MIN) || 60 });
 const textCache = new Map();
 async function cachedText(prompt) {

@@ -2,7 +2,8 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { T, SCRIPT, GRAD } from "./theme.js";
 import { PAGES } from "./content.js";
 import { detectCrisis } from "../shared/safety.js";
-import { drawReading, interpret, askOracle, oracleErrorText, getSystems, getConfig } from "./api.js";
+import { drawReading, interpret, askOracle, oracleErrorText, getSystems, getConfig, getPastReading } from "./api.js";
+import { AdSlot } from "./components/AdSlot.jsx";
 import { PageOverlay, CrisisOverlay, CardMini, Divider, FooterLinks, VikLink } from "./components/common.jsx";
 import { ChartScreen, ChartNav, CHART_SYSTEMS } from "./components/ChartScreen.jsx";
 import { AccountScreen } from "./components/AccountScreen.jsx";
@@ -99,7 +100,14 @@ export default function App() {
   const [prefill, setPrefill] = useState(null);
   const [billingOn, setBillingOn] = useState(false);
   useEffect(function(){ getConfig().then(function(c){ setBillingOn(!!c.billing); }).catch(function(){}); }, []);
-  const canChat = PREVIEW || !!(auth.me && auth.me.plan === "paid");
+  // Tiers: paid (or the preview) chats freely; free accounts get a weekly allowance;
+  // signed-out visitors see the teaser. Ads show to everyone but paid.
+  const paidUser = PREVIEW || !!(auth.me && auth.me.plan === "paid");
+  const freeUser = !paidUser && !!auth.session;
+  const canChat = paidUser || freeUser;
+  const [ads, setAds] = useState(null);
+  useEffect(function(){ getConfig().then(function(c){ setAds(c.ads || null); }).catch(function(){}); }, []);
+  const showAds = !!ads && !paidUser && auth.ready && !(auth.session && !auth.me);   // wait until the plan is known
   const teaserRef = useRef(null);
   const [pulse, setPulse] = useState(false);
   const showTeaser = useCallback(function(){
@@ -107,6 +115,15 @@ export default function App() {
     setPulse(false); setTimeout(function(){ setPulse(true); }, 30);
   }, []);
   const openSaved = useCallback(function(c){ setPrefill(c); goChart(c.system); }, [goChart]);
+  // Reopening a past reading from the account page: the draw, its interpretation and chat.
+  const openPast = useCallback(async function(seed){
+    const r = await getPastReading(seed);
+    ++drawId.current;
+    setDraw({ seed: r.seed, reading: r.reading }); setInterp(r.interp); setInterpError(r.interp ? null : "This reading's interpretation wasn't kept.");
+    setMsgs((r.messages || []).map(function(m){ return { role: m.role, text: m.text, ts: "" }; }));
+    setChatError(null); setChatErrorCode(null); setLinked(null);
+    setPhase("ready"); goChart(null);
+  }, [goChart]);
   // Signed out: a quiet "sign in" and a clear "sign up". Upsell prompts open the sign-up tab.
   const [authMode, setAuthMode] = useState("signin");
   const goAccount = function(mode){ setAuthMode(mode || "signin"); goChart("account"); };
@@ -139,6 +156,8 @@ export default function App() {
   const [linked, setLinked] = useState(null);           // {systems, person}: charts the chat may draw on
   const [linkStep, setLinkStep] = useState(0);
   const [questions, setQuestions] = useState(null);     // {used, max} this week, for paid accounts
+  const [freeChats, setFreeChats] = useState(null);     // {used, max} this week, for free accounts
+  useEffect(function(){ if (auth.me && auth.me.free) setFreeChats(auth.me.free.chats); }, [auth.me]);
   useEffect(function(){
     const saved = loadSession().reading;
     if (saved && saved.draw) {
@@ -204,10 +223,12 @@ export default function App() {
       const out = await askOracle(draw.seed, interp && interp.synthesis, history, charts, interp);
       if (id !== drawId.current) return;
       if (out.questions) setQuestions(out.questions);
+      if (out.chats) setFreeChats(out.chats);
       setMsgs(function(p){ return [...p, {role:"assistant",text:out.reply,ts:now(),drewOn:out.drewOn||undefined,note:note||undefined}]; });
     } catch (err) {
       if (id !== drawId.current) return;
       onFail(); setChatError(oracleErrorText(err)); setChatErrorCode(err && err.code);
+      if (err && err.code === "chat_limit" && freeChats) setFreeChats({ ...freeChats, used: freeChats.max });
     } finally {
       if (ticker) clearInterval(ticker);
       if (id === drawId.current) setChatLoading(false);
@@ -256,8 +277,8 @@ export default function App() {
         <div style={{maxWidth:chart==="account"?560:980,margin:"0 auto",padding:"14px 14px 24px"}}>
           <ChartNav current={chart} onNav={goChart}/>
           {chart === "account"
-            ? <AccountScreen auth={auth} onOpenChart={openSaved} initialMode={authMode}/>
-            : <ChartScreen system={chart} meta={systems} auth={auth} canChat={canChat} onAccount={function(){goChart("account");}} onCrisis={function(){setCrisis(true);}} prefill={prefill} onPrefillUsed={function(){setPrefill(null);}} onOpenSaved={openSaved} onSignIn={signUp}/>}
+            ? <AccountScreen auth={auth} onOpenChart={openSaved} onOpenReading={openPast} initialMode={authMode}/>
+            : <ChartScreen system={chart} meta={systems} auth={auth} canChat={paidUser} onAccount={function(){goChart("account");}} onCrisis={function(){setCrisis(true);}} prefill={prefill} onPrefillUsed={function(){setPrefill(null);}} onOpenSaved={openSaved} onSignIn={signUp} ads={showAds ? ads : null} aiReading={canChat} onUpgrade={function(){goAccount();}}/>}
           <div style={{marginTop:18}}><FooterLinks onPage={openPage} onCrisis={function(){setCrisis(true);}}/></div>
         </div>
       </main>
@@ -279,7 +300,7 @@ export default function App() {
         </nav>
       </header>
       <main style={{flex:1,overflowY:"auto"}}>
-        <Home onDraw={startDraw} onContinue={draw && interp ? function(){ setPhase("ready"); } : null} onChart={goChart} onAccount={function(){goAccount("signin");}} onSignUp={signUp} auth={auth} billingOn={billingOn}
+        <Home onDraw={startDraw} onContinue={draw && interp ? function(){ setPhase("ready"); } : null} onChart={goChart} onAccount={function(){goAccount("signin");}} onSignUp={signUp} auth={auth} ads={showAds ? ads : null} billingOn={billingOn}
           onPage={openPage} onCrisis={function(){setCrisis(true);}}/>
       </main>
       {overlays}
@@ -387,10 +408,13 @@ export default function App() {
             <p style={{fontSize:15,color:T.purple,textAlign:"center",lineHeight:1.8,marginBottom:20,fontWeight:600,fontFamily:"Georgia,serif",padding:"0 8px"}}>{interp.invitation}</p>
           )}
 
+          {showAds && interp && phase==="ready" && <AdSlot ads={ads} place="reading" onUpgrade={function(){ auth.session ? goAccount() : signUp(); }}/>}
+
           {interp && phase==="ready" && (canChat
             ? <>
-                <LinkBar linked={linked} onChange={changeLinked} auth={auth} disabled={chatLoading}/>
+                <LinkBar linked={linked} onChange={changeLinked} auth={auth} disabled={chatLoading} locked={freeUser} onLocked={function(){goAccount();}}/>
                 {questions && linked && linked.systems.length > 0 && <p style={{fontSize:11,color:T.dim,textAlign:"center",margin:"-6px 0 12px"}}>questions with charts this week: {questions.used} of {questions.max}</p>}
+                {freeUser && freeChats && <p style={{fontSize:11,color:T.dim,textAlign:"center",margin:"-6px 0 12px"}}>free questions this week: {freeChats.used} of {freeChats.max} · <button className="link-btn" onClick={function(){goAccount();}} style={{fontSize:11,color:T.purple,fontWeight:600}}>unlimited with paid</button></p>}
                 {msgs.length===0 && !chatLoading && <SuggestedChips reading={reading} onAsk={sendChat} disabled={chatLoading}/>}
               </>
             : <ChatTeaser reading={reading} auth={auth} pulse={pulse} innerRef={teaserRef}
@@ -407,6 +431,11 @@ export default function App() {
             ); })}
             {chatLoading && <div style={{display:"flex",marginBottom:12}}><div className="pulse" style={{padding:"12px 16px",borderRadius:"18px 18px 18px 4px",background:T.surface,border:"1px solid "+T.border,color:T.dim,fontSize:20}} aria-label="the oracle is thinking">{linkedChartBodies(linked).length ? <span style={{fontSize:12,fontWeight:600,letterSpacing:0.5,color:T.purple}}>{LINK_STEPS[linkStep]}</span> : "···"}</div></div>}
             {chatError && <p style={{fontSize:13,color:T.pink,textAlign:"center",margin:"0 0 12px"}}>{chatError}</p>}
+            {chatErrorCode === "chat_limit" && (
+              <div style={{textAlign:"center",margin:"-4px 0 14px"}}>
+                <button onClick={function(){goAccount();}} style={{...primaryBtn,padding:"10px 22px",fontSize:13}}>go unlimited ✦</button>
+              </div>
+            )}
             {chatErrorCode === "question_limit" && !PREVIEW && (
               <div style={{textAlign:"center",margin:"-4px 0 14px"}}>
                 <button disabled={buying} onClick={async function(){ setBuying(true); const e = await goToCheckout("extra", ""); if (e) { setChatError(e); setBuying(false); } }}
@@ -428,7 +457,7 @@ export default function App() {
           <div style={{maxWidth:640,margin:"0 auto",padding:"10px 14px"}}>
             <button onClick={showTeaser} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,border:"1px solid "+T.border,borderRadius:12,padding:"11px 14px",background:T.bg,cursor:"pointer",color:T.muted,fontSize:15,fontFamily:"Georgia,serif"}}>
               <span>ask the oracle about this reading…</span>
-              <span style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#fff",background:GRAD,borderRadius:999,padding:"4px 10px",fontFamily:"system-ui,sans-serif"}}>🔒 paid</span>
+              <span style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#fff",background:GRAD,borderRadius:999,padding:"4px 10px",fontFamily:"system-ui,sans-serif"}}>{auth.enabled ? "free account" : "🔒 paid"}</span>
             </button>
           </div>
         </div>

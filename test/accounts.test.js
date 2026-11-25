@@ -30,15 +30,19 @@ test("me needs a valid session", async () => {
   assert.equal((await call("GET", "/api/me")).status, 401);
   assert.equal((await call("GET", "/api/me", "not-a-token")).status, 401);
   const me = await call("GET", "/api/me", FREE);
-  assert.deepEqual(me.body, { email: "free@example.com", plan: "free", slots: 2, charts: [],
+  assert.deepEqual(me.body, { email: "free@example.com", plan: "free", slots: 1, charts: [],
+    free: { chats: { used: 0, max: 5 }, chartReadings: { used: 0, max: 1 } },
     billing: { enabled: false, subscribed: false, status: null, interval: null, renewsAt: null, cancelAtPeriodEnd: false, hasCustomer: false, extraQuestions: 0 },
     questions: { used: 0, max: 5 } });
 });
 
-test("free accounts can't save charts", async () => {
-  const r = await call("PUT", "/api/charts/1", FREE, natal);
+test("free accounts save one chart; the second slot is paid", async () => {
+  const F = "test:u-free1:f1@example.com:free";
+  assert.equal((await call("PUT", "/api/charts/1", F, natal)).status, 200);
+  const r = await call("PUT", "/api/charts/2", F, natal);
   assert.equal(r.status, 403);
   assert.equal(r.body.error, "paid_required");
+  assert.equal((await call("GET", "/api/me", F)).body.charts.length, 1);
 });
 
 test("paid accounts save two slots, validated, and can delete", async () => {
