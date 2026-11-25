@@ -103,8 +103,11 @@ export function renderChart(inp) {
 
 // The prompt for one guide item (or a tab's overview), built from that item's
 // own data only, exactly as the standalone pages do.
+// Charts bound for the AI drop the person's name: Claude only ever sees positions and dates.
+const forAI = inp => ({ ...inp, name: "" });
+
 export function guidePrompt(inp, tabKey, item) {
-  const { engine, chart } = computeChart(inp);
+  const { engine, chart } = computeChart(forAI(inp));
   const tab = engine.SYSTEM.guide.tabs.find(t => t.key === tabKey);
   if (!tab) throw new ChartInputError("unknown section");
   if (item === "overview") {
@@ -118,7 +121,7 @@ export function guidePrompt(inp, tabKey, item) {
 
 // The prompt for one reading section, from the chart and today's sky only.
 export function readingPrompt(inp, sectionId, technical) {
-  const { engine, chart } = computeChart(inp);
+  const { engine, chart } = computeChart(forAI(inp));
   const sec = engine.SYSTEM.reading.sections.find(s => s.id === Number(sectionId));
   if (!sec || (technical && !sec.astroPrompt)) throw new ChartInputError("unknown section");
   const data = engine.SYSTEM.reading.data(chart);
@@ -138,6 +141,7 @@ const plain = h => String(h || "").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, "
 // What the chat is told about one chart: its placements and today's transits,
 // calculated fresh from the birth details.
 export function chartChatContext(inp) {
+  inp = forAI(inp);
   const engine = engines[inp.system];
   const utc = engine.toUTC(inp.date, inp.time, inp.tz);
   if (!utc) throw new ChartInputError("invalid time");
@@ -167,6 +171,7 @@ const TRANSIT_KEYS = { "gene-keys": ["personalTech"], "human-design": ["personal
 // one card per placement (from the chart guide) plus one per current transit.
 // Only data: no generated text from any earlier reading.
 export function chartFactCards(inp) {
+  inp = forAI(inp);
   const { engine, chart } = computeChart(inp);
   const sys = inp.system, cards = [];
   engine.referenceData(chart).forEach(t => t.items.forEach((it, i) => cards.push({

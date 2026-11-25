@@ -141,7 +141,8 @@ test("chart chat: paid only, recalculated chart in the prompt, one system only",
   assert.equal(requests.length, 1);
   const sys = requests[0].body.system;
   assert.match(sys, /Human Design guide/);
-  assert.match(sys, /Ava's Human Design Bodygraph/);
+  assert.match(sys, /their Human Design Bodygraph/);
+  assert.doesNotMatch(sys, /Ava/, "the name stays out of the prompt");
   assert.match(sys, /Projector/);
   assert.doesNotMatch(sys, /Gene Key|Siddhi|Jyotish|nakshatra|Placidus/);
   assert.deepEqual(requests[0].body.messages, [{ role: "user", content: "What is my type about?" }]);
@@ -234,6 +235,21 @@ test("AI service errors say why (out of credit)", async () => {
   const r = await post("/api/chat", { seed: 13579, history: [{ role: "user", text: "NOCREDIT what now?" }] });
   assert.equal(r.status, 502);
   assert.deepEqual(r.body, { error: "upstream", reason: "credit", status: 400 });
+});
+
+test("the AI never sees the person's name or birth place", async () => {
+  const chart = { system: "natal", name: "Zebedee Quill", date: "1990-07-15", time: "14:30", tz: "Australia/Sydney", lat: -33.87, lon: 151.21, place: "Sydney, Australia" };
+  requests.length = 0;
+  await post("/api/chart-chat", { chart, history: [{ role: "user", text: "What stands out?" }] }, PAID);
+  await post("/api/chart-reading", { chart, section: 1, technical: false }, PAID);
+  await post("/api/chart-explain", { chart, tab: "planets", item: 2 }, PAID);
+  const { body: { seed } } = await post("/api/draw", {});
+  const linked = await post("/api/chat", { seed, history: [{ role: "user", text: "and now?" }], charts: [chart] }, "test:u-p5:p5@example.com:paid");
+  assert.equal(linked.status, 200);
+  assert.ok(requests.length >= 6, "chart chat, reading, explanation and the linked chat's steps");
+  const sent = JSON.stringify(requests.map(r => r.body));
+  assert.doesNotMatch(sent, /Zebedee|Quill/, "no name");
+  assert.doesNotMatch(sent, /Sydney|-33\.87|151\.21/, "no place, timezone or coordinates");
 });
 
 test("chat sees what the reading page says about each card and the hexagram", async () => {

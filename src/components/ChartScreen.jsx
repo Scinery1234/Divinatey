@@ -123,7 +123,7 @@ function SaveBar({ auth, body, onSignIn }) {
   const me = auth.me;
   const small = { fontSize: 12, borderRadius: 999, padding: "6px 14px", cursor: "pointer", fontWeight: 600 };
   if (!auth.session && PREVIEW) return null;
-  if (!auth.session) return <button onClick={onSignIn} style={{ ...small, color: T.muted, background: "none", border: "1px solid " + T.border }}>sign in to save</button>;
+  if (!auth.session) return <button onClick={onSignIn} style={{ ...small, color: T.muted, background: "none", border: "1px solid " + T.border }}>sign up to save</button>;
   if (!me) return null;
   if (me.plan !== "paid") return <span style={{ fontSize: 11, color: T.dim }}>Saving charts is part of the paid plan</span>;
   const bySlot = Object.fromEntries((me.charts || []).map(c => [c.slot, c]));

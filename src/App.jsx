@@ -107,7 +107,17 @@ export default function App() {
     setPulse(false); setTimeout(function(){ setPulse(true); }, 30);
   }, []);
   const openSaved = useCallback(function(c){ setPrefill(c); goChart(c.system); }, [goChart]);
-  const accountBtn = auth.enabled && <button onClick={function(){goChart("account");}} style={{fontSize:12,color:T.muted,background:"none",border:"1px solid "+T.border,borderRadius:999,padding:"5px 14px",cursor:"pointer",fontWeight:600}}>{auth.session ? "account" : "sign in"}</button>;
+  // Signed out: a quiet "sign in" and a clear "sign up". Upsell prompts open the sign-up tab.
+  const [authMode, setAuthMode] = useState("signin");
+  const goAccount = function(mode){ setAuthMode(mode || "signin"); goChart("account"); };
+  const signUp = function(){ goAccount(auth.session ? "signin" : "signup"); };
+  const pill = {fontSize:12,borderRadius:999,padding:"5px 14px",cursor:"pointer",fontWeight:600};
+  const accountBtn = auth.enabled && (auth.session
+    ? <button onClick={function(){goAccount();}} style={{...pill,color:T.muted,background:"none",border:"1px solid "+T.border}}>account</button>
+    : <span style={{display:"inline-flex",gap:6}}>
+        <button onClick={function(){goAccount("signin");}} style={{...pill,color:T.muted,background:"none",border:"1px solid "+T.border}}>sign in</button>
+        <button onClick={function(){goAccount("signup");}} style={{...pill,color:"#fff",background:GRAD,border:"1px solid transparent",fontWeight:700}}>sign up</button>
+      </span>);
   useEffect(function(){ if (chart && chart !== "account" && !systems) getSystems().then(setSystems).catch(function(){}); }, [chart, systems]);
   // Closing an overlay page returns to the screen it was opened from.
   const closePage = useCallback(function(){ closePageRaw(); if (chart) window.history.replaceState(null, "", href(chart)); }, [closePageRaw, chart]);
@@ -246,8 +256,8 @@ export default function App() {
         <div style={{maxWidth:chart==="account"?560:980,margin:"0 auto",padding:"14px 14px 24px"}}>
           <ChartNav current={chart} onNav={goChart}/>
           {chart === "account"
-            ? <AccountScreen auth={auth} onOpenChart={openSaved}/>
-            : <ChartScreen system={chart} meta={systems} auth={auth} canChat={canChat} onAccount={function(){goChart("account");}} onCrisis={function(){setCrisis(true);}} prefill={prefill} onPrefillUsed={function(){setPrefill(null);}} onOpenSaved={openSaved} onSignIn={function(){goChart("account");}}/>}
+            ? <AccountScreen auth={auth} onOpenChart={openSaved} initialMode={authMode}/>
+            : <ChartScreen system={chart} meta={systems} auth={auth} canChat={canChat} onAccount={function(){goChart("account");}} onCrisis={function(){setCrisis(true);}} prefill={prefill} onPrefillUsed={function(){setPrefill(null);}} onOpenSaved={openSaved} onSignIn={signUp}/>}
           <div style={{marginTop:18}}><FooterLinks onPage={openPage} onCrisis={function(){setCrisis(true);}}/></div>
         </div>
       </main>
@@ -269,7 +279,7 @@ export default function App() {
         </nav>
       </header>
       <main style={{flex:1,overflowY:"auto"}}>
-        <Home onDraw={startDraw} onContinue={draw && interp ? function(){ setPhase("ready"); } : null} onChart={goChart} onAccount={function(){goChart("account");}} auth={auth} billingOn={billingOn}
+        <Home onDraw={startDraw} onContinue={draw && interp ? function(){ setPhase("ready"); } : null} onChart={goChart} onAccount={function(){goAccount("signin");}} onSignUp={signUp} auth={auth} billingOn={billingOn}
           onPage={openPage} onCrisis={function(){setCrisis(true);}}/>
       </main>
       {overlays}
@@ -384,7 +394,7 @@ export default function App() {
                 {msgs.length===0 && !chatLoading && <SuggestedChips reading={reading} onAsk={sendChat} disabled={chatLoading}/>}
               </>
             : <ChatTeaser reading={reading} auth={auth} pulse={pulse} innerRef={teaserRef}
-                onSignIn={function(){goChart("account");}} onAccount={function(){goChart("account");}}/>)}
+                onSignIn={signUp} onAccount={function(){goChart("account");}}/>)}
 
           <div aria-live="polite">
             {msgs.map(function(m,i){ const mine = m.role==="user"; return (

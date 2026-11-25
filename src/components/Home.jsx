@@ -28,7 +28,7 @@ const FAQ = [
   ["Can I cancel?", "Any time, from Manage billing on your account page. You keep the paid plan until the end of the period you've paid for."],
 ];
 
-export function Home({ onDraw, onContinue, onChart, onAccount, auth, billingOn, onPage, onCrisis }) {
+export function Home({ onDraw, onContinue, onChart, onAccount, onSignUp, auth, billingOn, onPage, onCrisis }) {
   const [busy, setBusy] = useState(null);
   const [err, setErr] = useState(null);
   const signedIn = !!(auth && auth.session);
@@ -36,7 +36,8 @@ export function Home({ onDraw, onContinue, onChart, onAccount, auth, billingOn, 
 
   // Choosing a plan: signed-in people go straight to Stripe; others sign in first.
   const choose = async kind => {
-    if (!signedIn || !billingOn) return onAccount();
+    if (!signedIn) return (onSignUp || onAccount)();
+    if (!billingOn) return onAccount();
     setBusy(kind); setErr(null);
     const e = await goToCheckout(kind);
     if (e) { setErr(e); setBusy(null); }
