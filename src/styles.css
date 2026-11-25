@@ -20,3 +20,5 @@ button:disabled { cursor: default; opacity: 0.7; }
 .teaser-pulse { animation: teaser-pulse 1.2s ease-out 1; }
 @keyframes teaser-pulse { 0% { box-shadow: 0 0 0 0 rgba(124,58,237,.45); } 100% { box-shadow: 0 0 0 14px rgba(124,58,237,0); } }
 @media (prefers-reduced-motion: reduce) { .teaser-pulse { animation: none; } }
+
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}

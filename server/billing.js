@@ -86,6 +86,16 @@ export function createBilling({ store, env = process.env }) {
       return s.url;
     },
 
+    // Ends a subscription at once when its account is deleted, so a deleted
+    // account is never charged again. Stripe keeps its own invoice records.
+    async cancelForDeletion(profile) {
+      const live = profile.subscription_id && !["canceled", "incomplete_expired"].includes(profile.subscription_status);
+      if (!live) return false;
+      try { await stripe.subscriptions.cancel(profile.subscription_id); }
+      catch (e) { if (e.code !== "resource_missing") throw e; }
+      return true;
+    },
+
     // Verifies and applies a webhook event. Returns what it did, for logs and tests.
     async webhook(rawBody, signature) {
       let event;

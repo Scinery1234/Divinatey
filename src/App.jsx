@@ -240,7 +240,7 @@ export default function App() {
   };
 
   const overlays = <>
-    {page && <PageOverlay page={page} onClose={closePage}/>}
+    {page && <PageOverlay page={page} onClose={closePage} onPage={openPage}/>}
     {crisis && <CrisisOverlay onClose={function(){setCrisis(false);}}/>}
   </>;
 

@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { T, GRAD } from "../theme.js";
 import { accountRedirect, authErrorText } from "../auth.js";
-import { deleteChartSlot } from "../api.js";
+import { deleteChartSlot, getConfig, exportMyData, deleteMyAccount } from "../api.js";
+import { Turnstile } from "./Turnstile.jsx";
+import { href } from "../preview.js";
 import { CHART_SYSTEMS } from "./ChartScreen.jsx";
 import { BillingPanel } from "./Billing.jsx";
 
@@ -25,10 +27,18 @@ function SignIn({ client, initialMode }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);             // {kind, text}
+  // Bot check (Cloudflare Turnstile), when the site has one configured.
+  const [siteKey, setSiteKey] = useState(null);
+  const [captcha, setCaptcha] = useState(null);
+  const widget = useRef(null);
+  useEffect(() => { getConfig().then(c => setSiteKey(c.captcha || null)).catch(() => {}); }, []);
+  const withCaptcha = o => captcha ? { ...o, captchaToken: captcha } : o;
 
   const run = async fn => {
+    if (siteKey && !captcha) { setMsg({ kind: "error", text: "One moment: we're checking you're not a bot. Try again in a few seconds." }); return; }
     setBusy(true); setMsg(null);
     try { await fn(); } catch (e) { setMsg({ kind: "error", text: authErrorText(e) }); }
+    if (siteKey && widget.current) widget.current.reset();   // tokens work once
     setBusy(false);
   };
   const needEmail = () => { if (!/^\S+@\S+\.\S+$/.test(email.trim())) { setMsg({ kind: "error", text: "Enter your email address." }); return false; } return true; };
@@ -38,25 +48,25 @@ function SignIn({ client, initialMode }) {
     e.preventDefault();
     if (!needEmail()) return;
     if (mode === "forgot") return run(async () => {
-      const { error } = await client.auth.resetPasswordForEmail(email.trim(), { redirectTo: accountRedirect() });
+      const { error } = await client.auth.resetPasswordForEmail(email.trim(), withCaptcha({ redirectTo: accountRedirect() }));
       if (error) throw error;
       setMsg({ kind: "ok", text: "If there's an account for that email, a password reset link is on its way." });
     });
     if (!needPassword()) return;
     if (mode === "signup") return run(async () => {
-      const { data, error } = await client.auth.signUp({ email: email.trim(), password, options: { emailRedirectTo: accountRedirect() } });
+      const { data, error } = await client.auth.signUp({ email: email.trim(), password, options: withCaptcha({ emailRedirectTo: accountRedirect() }) });
       if (error) throw error;
       if (!data.session) setMsg({ kind: "ok", text: "Check your email to confirm your account, then come back here." });
     });
     return run(async () => {
-      const { error } = await client.auth.signInWithPassword({ email: email.trim(), password });
+      const { error } = await client.auth.signInWithPassword({ email: email.trim(), password, options: withCaptcha({}) });
       if (error) throw error;
     });
   };
   const magicLink = () => {
     if (!needEmail()) return;
     run(async () => {
-      const { error } = await client.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: accountRedirect() } });
+      const { error } = await client.auth.signInWithOtp({ email: email.trim(), options: withCaptcha({ emailRedirectTo: accountRedirect() }) });
       if (error) throw error;
       setMsg({ kind: "ok", text: "Check your email for a sign-in link. It works once and expires in an hour." });
     });
@@ -84,6 +94,7 @@ function SignIn({ client, initialMode }) {
         {mode !== "forgot" && <div><label style={lbl} htmlFor="password">Password</label>
           <input id="password" type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} style={field} value={password} onChange={e => setPassword(e.target.value)} />
           {mode === "signup" && <p style={{ fontSize: 11, color: T.dim, margin: "6px 0 0" }}>At least {MIN_PASSWORD} characters.</p>}</div>}
+        {siteKey && <Turnstile ref={widget} siteKey={siteKey} onToken={setCaptcha} />}
         <Notice kind={msg && msg.kind}>{msg && msg.text}</Notice>
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
           <button type="submit" disabled={busy} style={primaryBtn}>{busy ? "one moment…" : { signin: "Sign in", signup: "Create account", forgot: "Send reset link" }[mode]}</button>
@@ -103,9 +114,10 @@ function PrivacyNote() {
   const item = { margin: 0, fontSize: 12.5, color: T.muted, lineHeight: 1.6 };
   return (
     <ul style={{ listStyle: "none", padding: "12px 14px", margin: "0 0 18px", border: "1px solid " + T.border, borderRadius: 12, display: "grid", gap: 6, background: T.bg }}>
-      <li style={item}>🔒 Birth details are only stored when you save a chart, and only you can see them.</li>
+      <li style={item}>🔒 Birth details are only stored when you save a chart, encrypted, and only you can see them.</li>
       <li style={item}>✦ The AI is sent chart positions, never your name, email or birth place.</li>
-      <li style={item}>🗑 Remove a saved chart any time; it's deleted, not hidden.</li>
+      <li style={item}>🗑 Download or delete everything any time, from your account page.</li>
+      <li style={{ ...item, marginTop: 2 }}><a href={href("safety")} style={{ color: T.purple, fontWeight: 600 }}>How we protect your data →</a></li>
     </ul>
   );
 }
@@ -158,17 +170,66 @@ function SavedCharts({ me, onOpen, onChanged }) {
           <div key={slot} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 14px", border: "1px solid " + T.border, borderRadius: 12, flexWrap: "wrap" }}>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: T.purple, fontWeight: 700 }}>Slot {slot}{sys ? " · " + sys.label : ""}</div>
-              {c ? <div style={{ fontSize: 14, color: T.text, marginTop: 2 }}>{c.name || "Unnamed"} <span style={{ color: T.dim, fontSize: 12 }}>· {c.birth.date} {c.birth.time}{c.birth.place ? " · " + c.birth.place : ""}</span></div>
+              {c && c.locked ? <div style={{ fontSize: 13, color: T.dim, marginTop: 2 }}>This chart can't be unlocked any more (the site's encryption key changed). Remove it and save it again.</div>
+                : c ? <div style={{ fontSize: 14, color: T.text, marginTop: 2 }}>{c.name || "Unnamed"} <span style={{ color: T.dim, fontSize: 12 }}>· {c.birth.date} {c.birth.time}{c.birth.place || c.birth.tz ? " · " + (c.birth.place || c.birth.tz.replace(/_/g, " ")) : ""}</span></div>
                 : <div style={{ fontSize: 13, color: T.dim, marginTop: 2 }}>Empty. Generate a chart, then save it here.</div>}
             </div>
             {c && <div style={{ display: "flex", gap: 8 }}>
-              <button style={{ ...ghostBtn, color: T.purple }} onClick={() => onOpen(c)}>Open</button>
+              {!c.locked && <button style={{ ...ghostBtn, color: T.purple }} onClick={() => onOpen(c)}>Open</button>}
               <button style={ghostBtn} disabled={busy === slot} onClick={() => remove(slot)}>{busy === slot ? "removing…" : "Remove"}</button>
             </div>}
           </div>
         );
       })}
       {error && <Notice kind="error">{error}</Notice>}
+    </div>
+  );
+}
+
+// Download everything kept about the account, or delete it all.
+function YourData({ auth }) {
+  const [busy, setBusy] = useState(null);          // "export" | "delete"
+  const [confirming, setConfirming] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [msg, setMsg] = useState(null);
+  const download = async () => {
+    setBusy("export"); setMsg(null);
+    try {
+      const data = await exportMyData();
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url; a.download = "divinatey-my-data.json"; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) { setMsg({ kind: "error", text: "Your data couldn't be downloaded just now. Try again in a moment." }); }
+    setBusy(null);
+  };
+  const remove = async () => {
+    setBusy("delete"); setMsg(null);
+    try { await deleteMyAccount(); await auth.signOut(); }
+    catch (e) {
+      setMsg({ kind: "error", text: e.code === "billing_upstream" ? "We couldn't cancel your subscription with Stripe, so nothing was deleted. Try again in a moment."
+        : "Your account couldn't be deleted just now. Nothing was removed. Try again in a moment." });
+      setBusy(null);
+    }
+  };
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <h3 style={{ ...lbl, margin: 0 }}>Your data</h3>
+      <p style={{ fontSize: 13, color: T.muted, margin: 0, lineHeight: 1.6 }}>Saved charts are encrypted before they're stored. Download a copy of everything kept with your account, or delete it for good.</p>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button style={ghostBtn} disabled={!!busy} onClick={download}>{busy === "export" ? "preparing…" : "Download my data"}</button>
+        {!confirming && <button style={{ ...ghostBtn, color: T.pink }} disabled={!!busy} onClick={() => setConfirming(true)}>Delete my account</button>}
+      </div>
+      {confirming && <div style={{ border: "1px solid " + T.pink, borderRadius: 12, padding: "12px 14px", display: "grid", gap: 10 }}>
+        <p style={{ fontSize: 13, color: T.text, margin: 0, lineHeight: 1.6 }}>This deletes your account, your saved charts and your question history straight away, and ends any subscription without a refund for the rest of the period. It can't be undone.</p>
+        <div><label style={lbl} htmlFor="confirmdel">Type DELETE to confirm</label>
+          <input id="confirmdel" style={field} value={typed} autoComplete="off" onChange={e => setTyped(e.target.value)} /></div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button style={{ ...ghostBtn, color: "#fff", background: T.pink, border: "none" }} disabled={typed.trim() !== "DELETE" || !!busy} onClick={remove}>{busy === "delete" ? "deleting…" : "Delete everything"}</button>
+          <button style={ghostBtn} disabled={!!busy} onClick={() => { setConfirming(false); setTyped(""); }}>Keep my account</button>
+        </div>
+      </div>}
+      <Notice kind={msg && msg.kind}>{msg && msg.text}</Notice>
     </div>
   );
 }
@@ -195,6 +256,7 @@ export function AccountScreen({ auth, onOpenChart, initialMode }) {
         <BillingPanel me={me} refreshMe={auth.refreshMe} />
         <SavedCharts me={me} onOpen={onOpenChart} onChanged={auth.refreshMe} />
       </>}
+      <YourData auth={auth} />
       <SetPassword client={auth.client} title="Password" intro="Set or change your password. Accounts made with a sign-in link can add one here." />
       <div><button style={ghostBtn} onClick={auth.signOut}>Sign out</button></div>
     </div>

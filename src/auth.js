@@ -65,6 +65,7 @@ export function authErrorText(err) {
   if (m.includes("email_not_confirmed") || m.includes("not confirmed")) return "Confirm your email first. Check your inbox for the link we sent.";
   if (m.includes("weak_password") || m.includes("pwned") || m.includes("password")) return "Choose a stronger password: at least 8 characters, and not one that has appeared in a data leak.";
   if (m.includes("user_already_exists") || m.includes("already registered")) return "There's already an account with that email. Sign in instead.";
+  if (m.includes("captcha")) return "The bot check didn't go through. Wait a moment, then try again.";
   if (m.includes("email_address_not_authorized") || m.includes("not authorized")) return "Sign-up emails can't be sent to this address yet (the site's email service isn't fully set up). Please try again later.";
   if (m.includes("over_email_send_rate_limit") || m.includes("email rate limit")) return "Too many emails sent in the last hour. Wait a while, then try again.";
   if (m.includes("rate") || m.includes("security purposes")) return "Too many attempts. Wait a minute, then try again.";

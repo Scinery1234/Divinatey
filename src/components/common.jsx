@@ -2,10 +2,11 @@ import { useEffect } from "react";
 import { T, SCRIPT } from "../theme.js";
 import { P, cardLabel } from "../cardPaths.js";
 import { PAGES } from "../content.js";
+import { SafetyPage } from "./SafetyPage.jsx";
 import { CRISIS_RES } from "../../shared/safety.js";
 
 export const VIK_URL = "https://www.vikashan.org";
-export const FOOTER_PAGES = [["about","About"],["terms","Terms"],["privacy","Privacy"]];
+export const FOOTER_PAGES = [["about","About"],["safety","Safety"],["terms","Terms"],["privacy","Privacy"]];
 
 export function VikLink({color}) {
   return <a href={VIK_URL} target="_blank" rel="noopener noreferrer" style={{color:color||T.purple,textDecoration:"none",fontWeight:500}}>Vikashan</a>;
@@ -27,15 +28,16 @@ function useEscape(onClose) {
   }, [onClose]);
 }
 
-export function PageOverlay({page, onClose}) {
+export function PageOverlay({page, onClose, onPage}) {
   useEscape(onClose);
   const content = PAGES[page];
   if (!content) return null;
   return (
     <div role="dialog" aria-modal="true" aria-label={content.title} style={{position:"fixed",inset:0,background:T.bg,zIndex:200,display:"flex",flexDirection:"column",overflowY:"auto"}}>
-      <div style={{maxWidth:560,width:"100%",margin:"0 auto",padding:"32px 24px 60px"}}>
+      <div style={{maxWidth:content.wide?720:560,width:"100%",margin:"0 auto",padding:"32px 16px 60px"}}>
         <button onClick={onClose} className="link-btn" style={{color:T.dim,fontSize:12,letterSpacing:2,textTransform:"uppercase",marginBottom:32}}>← back</button>
         <h2 style={{fontSize:30,fontWeight:400,color:T.text,margin:"0 0 32px",fontFamily:SCRIPT}}>{content.title}</h2>
+        {page === "safety" && <SafetyPage onPage={onPage} />}
         {content.sections.map(function(s,i) {
           return (
             <div key={i} style={{marginBottom:28}}>

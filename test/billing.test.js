@@ -26,6 +26,7 @@ before(async () => {
       if (u.pathname === "/v1/customers") return send({ id: "cus_1", object: "customer" });
       if (u.pathname === "/v1/checkout/sessions") return send({ id: "cs_1", object: "checkout.session", url: "https://checkout.stripe.test/cs_1" });
       if (u.pathname === "/v1/billing_portal/sessions") return send({ id: "bps_1", url: "https://billing.stripe.test/p" });
+      if (u.pathname === "/v1/subscriptions/sub_1" && req.method === "DELETE") return send(subscription("canceled"));
       if (u.pathname === "/v1/subscriptions/sub_1") return send(subscription("active"));
       res.statusCode = 404; send({ error: { message: "not found" } });
     });
@@ -118,4 +119,13 @@ test("webhooks: signature checked, subscription turns the plan on and off, dupli
   me = (await call("GET", "/api/me", BUYER)).body;
   assert.equal(me.plan, "free");
   assert.equal(me.billing.subscribed, false);
+});
+
+test("deleting an account ends its subscription with Stripe first", async () => {
+  const U = "test:u-leaver:leaver@example.com:free";
+  await webhook("checkout.session.completed", { id: "cs_9", mode: "subscription", customer: "cus_1", subscription: "sub_1", client_reference_id: "u-leaver", metadata: { user_id: "u-leaver", kind: "monthly" } });
+  assert.equal((await call("GET", "/api/me", U)).body.plan, "paid");
+  const r = await call("DELETE", "/api/me", U, { confirm: "DELETE" });
+  assert.deepEqual(r.body, { deleted: true });
+  assert.ok(calls.some(c => c.method === "DELETE" && c.path === "/v1/subscriptions/sub_1"), "subscription cancelled");
 });

@@ -57,6 +57,9 @@ If the app runs behind a reverse proxy or load balancer, set `TRUST_PROXY=1` so 
 | `SUPABASE_ANON_KEY` | (unset) | Public key the browser uses to sign in |
 | `SUPABASE_SERVICE_ROLE_KEY` | (unset) | Secret; server only |
 | `FREE_LIMIT_SECRET` | (random per start) | Key for hashing IPs in the free chart count |
+| `CHART_ENCRYPTION_KEY` | (none: saved charts unencrypted, with a warning) | 32 random bytes, base64 (`openssl rand -base64 32`). Encrypts saved charts. **Keep a copy: losing it makes saved charts unreadable** |
+| `CHART_ENCRYPTION_OLD_KEYS` | (none) | Earlier keys, comma-separated, still accepted for reading after a key change |
+| `TURNSTILE_SITE_KEY` | (none: no bot check) | Cloudflare Turnstile site key for sign-up/sign-in; also turn on CAPTCHA protection in Supabase with the secret key |
 | `COMP_EMAILS` | (none) | Comma-separated emails whose accounts get the paid plan without paying (owner, testers) |
 | `PAID_PREVIEW` | on | Set to `0` to close the paid preview at `/preview` |
 | `PREVIEW_CHAT_PER_10MIN` | `20` | Chat messages per IP in the preview |

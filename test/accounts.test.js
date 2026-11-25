@@ -8,7 +8,7 @@ let server, base;
 before(async () => {
   const port = 20000 + Math.floor(Math.random() * 1000);
   base = "http://localhost:" + port;
-  const env = { ...process.env, PORT: String(port), ANTHROPIC_API_KEY: "test", AUTH_TEST_TOKENS: "1", FREE_CHARTS_PER_DAY: "1", COMP_EMAILS: " Owner@Example.com ,tester@example.com" };
+  const env = { ...process.env, PORT: String(port), ANTHROPIC_API_KEY: "test", AUTH_TEST_TOKENS: "1", FREE_CHARTS_PER_DAY: "1", COMP_EMAILS: " Owner@Example.com ,tester@example.com", CHART_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64") };
   delete env.SUPABASE_URL; delete env.SUPABASE_SERVICE_ROLE_KEY; delete env.SUPABASE_SERVICE_KEY;
   server = spawn(process.execPath, ["server/index.js"], { env, stdio: ["ignore", "pipe", "inherit"] });
   await new Promise(r => server.stdout.on("data", r));
@@ -46,7 +46,7 @@ test("paid accounts save two slots, validated, and can delete", async () => {
   assert.equal((await call("PUT", "/api/charts/1", PAID, { ...natal, lat: 999 })).status, 400);
   const a = await call("PUT", "/api/charts/1", PAID, natal);
   assert.equal(a.status, 200);
-  assert.equal(a.body.charts[0].birth.place, "Sydney, New South Wales, Australia");
+  assert.equal("place" in a.body.charts[0].birth, false, "the place name isn't kept");
   const b = await call("PUT", "/api/charts/2", PAID, { system: "human-design", name: "Partner", date: "1988-02-01", time: "08:00", tz: "Europe/London" });
   assert.deepEqual(b.body.charts.map(c => [c.slot, c.system, c.name]), [[1, "natal", "Me"], [2, "human-design", "Partner"]]);
   assert.equal("lat" in b.body.charts[1].birth, false);
@@ -93,6 +93,53 @@ test("COMP_EMAILS accounts get the paid plan without Stripe, wherever they are",
   assert.equal(me.billing.subscribed, false);
   assert.equal((await call("PUT", "/api/charts/1", OWNER, natal)).status, 200, "saves charts");
   assert.equal((await call("GET", "/api/me", FREE)).body.plan, "free", "others stay free");
+});
+
+test("saved charts keep only what the chart needs: rounded coordinates, no place name", async () => {
+  const U = "test:u-min:min@example.com:paid";
+  const r = await call("PUT", "/api/charts/1", U, { ...natal, lat: -33.868819, lon: 151.209295 });
+  assert.equal(r.status, 200);
+  const b = r.body.charts[0].birth;
+  assert.deepEqual(b, { date: "1990-07-15", time: "14:30", tz: "Australia/Sydney", lat: -33.87, lon: 151.21 });
+});
+
+test("download my data: everything kept, for the signed-in account only", async () => {
+  const U = "test:u-exp:exp@example.com:paid";
+  assert.equal((await call("GET", "/api/me/export")).status, 401);
+  await call("PUT", "/api/charts/2", U, natal);
+  const r = await fetch(base + "/api/me/export", { headers: { authorization: "Bearer " + U } });
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get("content-disposition"), /attachment; filename="divinatey-my-data.json"/);
+  const d = await r.json();
+  assert.equal(d.account.email, "exp@example.com");
+  assert.equal(d.saved_charts.length, 1);
+  assert.equal(d.saved_charts[0].name, "Me");
+  assert.equal(d.saved_charts[0].birth.date, "1990-07-15");
+  assert.deepEqual(d.linked_questions, []);
+});
+
+test("delete my account: needs confirmation, removes everything, and the session stops working", async () => {
+  const U = "test:u-del:del@example.com:paid";
+  await call("PUT", "/api/charts/1", U, natal);
+  assert.equal((await call("DELETE", "/api/me", U, {})).status, 400, "confirmation required");
+  assert.equal((await call("DELETE", "/api/me", null, { confirm: "DELETE" })).status, 401);
+  const r = await call("DELETE", "/api/me", U, { confirm: "DELETE" });
+  assert.deepEqual(r.body, { deleted: true });
+  assert.equal((await call("GET", "/api/me", U)).status, 401);
+});
+
+test("security headers on pages and API", async () => {
+  for (const path of ["/", "/api/config"]) {
+    const h = (await fetch(base + path)).headers;
+    const csp = h.get("content-security-policy");
+    assert.match(csp, /default-src 'self'/);
+    assert.match(csp, /script-src 'self'(;|$)/, "no inline or third-party scripts without Turnstile");
+    assert.match(csp, /frame-ancestors 'none'/);
+    assert.equal(h.get("x-content-type-options"), "nosniff");
+    assert.equal(h.get("x-frame-options"), "DENY");
+    assert.equal(h.get("referrer-policy"), "strict-origin-when-cross-origin");
+  }
+  assert.equal((await fetch(base + "/api/config")).headers.get("cache-control"), "no-store");
 });
 
 test("health check reports the chart server", async () => {

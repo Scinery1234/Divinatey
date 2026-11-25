@@ -146,6 +146,19 @@ function SaveBar({ auth, body, onSignIn }) {
   );
 }
 
+// The chart's own controls (expandable notes, the Vedic North/South switch).
+// They used to be inline onclick attributes, which the content policy blocks.
+function chartClick(e) {
+  const toggle = e.target.closest(".eph-toggle");
+  if (toggle) { const n = toggle.nextElementSibling; if (n) n.style.display = n.style.display === "block" ? "none" : "block"; return; }
+  const style = e.target.closest(".vstyle");
+  if (style) {
+    const w = style.closest(".vedic-wrap"); if (!w) return;
+    w.querySelectorAll(".vstyle").forEach(b => b.classList.toggle("on", b === style));
+    w.querySelectorAll(".vcharts").forEach(d => { d.hidden = d.dataset.s !== style.dataset.s; });
+  }
+}
+
 export function ChartScreen({ system, meta, auth, canChat, prefill, onPrefillUsed, onOpenSaved, onSignIn, onAccount, onCrisis }) {
   useAstroStyles();
   const info = meta && meta[system];
@@ -255,7 +268,7 @@ export function ChartScreen({ system, meta, auth, canChat, prefill, onPrefillUse
           </div>
         </div>
         <p style={{ fontSize: 12, color: T.dim, margin: "-4px 0 10px", textAlign: "center" }}>Pick another system above to see {result.body && result.body.name ? result.body.name + "'s" : "this person's"} chart there. It opens straight away and doesn't use another free chart.</p>
-        <div className="astro" style={vars} dangerouslySetInnerHTML={{ __html: result.html }} />
+        <div className="astro" style={vars} onClick={chartClick} dangerouslySetInnerHTML={{ __html: result.html.replace(/\s+on[a-z]+="[^"]*"/gi, "") }} />
         {canChat ? <div className="astro" style={{ ...vars, marginTop: 16 }}><ChartReading reading={result.reading} chart={result.body} texts={texts} setText={setText} /></div> : <LockedAI />}
         <ChartChat chart={result.body} canChat={canChat} auth={auth} onSignIn={onSignIn} onAccount={onAccount || onSignIn} onCrisis={onCrisis} />
         {showRef && <GuidePanel reference={result.reference} chart={result.body} canExplain={canChat} texts={texts} setText={setText}

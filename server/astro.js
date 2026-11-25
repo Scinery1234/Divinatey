@@ -88,6 +88,8 @@ function computeChart(inp) {
   return { engine, chart };
 }
 
+export const stripInlineHandlers = html => String(html).replace(/\s+on[a-z]+="[^"]*"/gi, "");
+
 export function renderChart(inp) {
   const { engine, chart } = computeChart(inp);
   const R = engine.SYSTEM.reading;
@@ -95,7 +97,8 @@ export function renderChart(inp) {
     system: inp.system,
     title: engine.SYSTEM.title,
     accent: engine.SYSTEM.accent || {},
-    html: engine.chartBodyHTML(chart),
+    // Inline handlers are dropped (the site's content policy blocks them); the app handles those clicks.
+    html: stripInlineHandlers(engine.chartBodyHTML(chart)),
     reference: engine.referenceData(chart),
     reading: { title: R.title, sections: R.sections.map(s => ({ id: s.id, icon: s.icon, title: s.title, desc: s.desc, technical: !!s.astroPrompt })) },
   };

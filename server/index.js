@@ -9,6 +9,7 @@ import { rateLimit } from "./rate-limit.js";
 import { freeChartLimit } from "./free-limit.js";
 import { createStore, SLOTS } from "./store.js";
 import { createBilling, BillingError } from "./billing.js";
+import { securityHeaders } from "./headers.js";
 import { searchPlaces, warmPlaces, chartChatContext, chartFactCards, guidePrompt, readingPrompt, parseChartInput, renderChart, chartKey, systemMeta, ChartInputError } from "./astro.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -21,6 +22,7 @@ const MAX_TEXT = 2000;
 const app = express();
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "1");
+app.use(securityHeaders());
 // Stripe webhook: needs the raw body to check Stripe's signature, so it comes
 // before the JSON parser. (billing is created with the account routes below.)
 app.post("/api/stripe/webhook", express.raw({ type: "application/json", limit: "1mb" }), async (req, res) => {
@@ -213,6 +215,8 @@ function weekStart(d = new Date()) {
 // ── Accounts ─────────────────────────────────────────────────────────────────
 const store = createStore();
 const billing = createBilling({ store });
+if (store.accounts && !process.env.AUTH_TEST_TOKENS && !process.env.CHART_ENCRYPTION_KEY)
+  console.warn("CHART_ENCRYPTION_KEY is not set: saved charts are stored unencrypted. Set it (openssl rand -base64 32).");
 if (store.accounts && !process.env.AUTH_TEST_TOKENS && !process.env.FREE_LIMIT_SECRET)
   console.warn("FREE_LIMIT_SECRET is not set: free chart counts reset on every restart.");
 const accountLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 120 });
@@ -250,7 +254,8 @@ const slotParam = (req, res) => {
 // The anon key is public by design: the browser needs it to sign in.
 app.get("/api/config", (req, res) => {
   const url = process.env.SUPABASE_URL, anonKey = process.env.SUPABASE_ANON_KEY;
-  res.json({ auth: url && anonKey ? { url, anonKey } : null, preview: PREVIEW_ON, billing: !!billing });
+  res.json({ auth: url && anonKey ? { url, anonKey } : null, preview: PREVIEW_ON, billing: !!billing,
+    ...(process.env.TURNSTILE_SITE_KEY ? { captcha: process.env.TURNSTILE_SITE_KEY } : {}) });
 });
 
 app.get("/api/me", accountLimit, identify, requireUser, async (req, res) => {
@@ -271,6 +276,41 @@ app.get("/api/me", accountLimit, identify, requireUser, async (req, res) => {
   }
 });
 
+// Everything kept about the account, as a file the person can download.
+app.get("/api/me/export", accountLimit, identify, requireUser, async (req, res) => {
+  try {
+    const p = await store.getProfile(req.user.id, req.user);
+    const data = {
+      exported_at: new Date().toISOString(),
+      account: { email: req.user.email, plan: req.user.plan },
+      billing: { plan: p.plan, subscription_status: p.subscription_status, billing_interval: p.billing_interval,
+        plan_renews_at: p.plan_renews_at, cancel_at_period_end: !!p.cancel_at_period_end, extra_questions: p.extra_questions || 0,
+        stripe_customer_id: p.stripe_customer_id },
+      saved_charts: (await store.listCharts(req.user.id)).map(c => ({ slot: c.slot, system: c.system, name: c.name, birth: c.birth, saved_at: c.updated_at, ...(c.locked ? { locked: true } : {}) })),
+      linked_questions: await store.listLinked(req.user.id),
+      not_kept: "Readings, chats and unsaved charts are never stored. Payment cards are held by Stripe, not Divinatey.",
+    };
+    res.set("Content-Disposition", 'attachment; filename="divinatey-my-data.json"');
+    res.set("Cache-Control", "no-store");
+    res.json(data);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// Deletes the account and everything kept with it, ending any subscription first.
+app.delete("/api/me", accountLimit, identify, requireUser, async (req, res) => {
+  if (!req.body || req.body.confirm !== "DELETE") return res.status(400).json({ error: "confirm_required" });
+  try {
+    if (billing) await billing.cancelForDeletion(await store.getProfile(req.user.id, req.user));
+    await store.deleteUser(req.user.id);
+    res.json({ deleted: true });
+  } catch (err) {
+    if (err && err.type && String(err.type).startsWith("Stripe")) { console.error("Stripe cancel failed:", err.message); return res.status(502).json({ error: "billing_upstream" }); }
+    sendError(res, err);
+  }
+});
+
 app.put("/api/charts/:slot", accountLimit, identify, requireUser, requirePaid, async (req, res) => {
   const slot = slotParam(req, res);
   if (!slot) return;
@@ -281,8 +321,10 @@ app.put("/api/charts/:slot", accountLimit, identify, requireUser, requirePaid, a
     if (err instanceof ChartInputError) return res.status(400).json({ error: err.message });
     return sendError(res, err);
   }
-  const birth = { date: inp.date, time: inp.time, tz: inp.tz, place: String(req.body.place || "").slice(0, 120) };
-  if ("lat" in inp) { birth.lat = inp.lat; birth.lon = inp.lon; }
+  // Kept to what the chart needs: coordinates rounded to about 1 km (the chart
+  // doesn't change), and no place name; the timezone labels it instead.
+  const birth = { date: inp.date, time: inp.time, tz: inp.tz };
+  if ("lat" in inp) { birth.lat = Math.round(inp.lat * 100) / 100; birth.lon = Math.round(inp.lon * 100) / 100; }
   if (inp.birthName) birth.birthName = inp.birthName;
   try {
     await store.saveChart(req.user.id, slot, { system: inp.system, name: inp.name, birth });

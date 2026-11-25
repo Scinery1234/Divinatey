@@ -65,6 +65,8 @@ export const getConfig = () => get("/api/config");
 export const getMe = () => call("GET", "/api/me", undefined, true);
 export const saveChartSlot = (slot, body) => call("PUT", "/api/charts/" + slot, body, true);
 export const deleteChartSlot = slot => call("DELETE", "/api/charts/" + slot, undefined, true);
+export const exportMyData = () => call("GET", "/api/me/export", undefined, true);
+export const deleteMyAccount = () => call("DELETE", "/api/me", { confirm: "DELETE" }, true);
 
 export function chartErrorText(err) {
   if (err instanceof ApiError) {

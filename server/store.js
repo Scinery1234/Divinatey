@@ -6,6 +6,7 @@
 // server restarts. AUTH_TEST_TOKENS=1 (tests only, never with Supabase) makes
 // the memory store accept bearer tokens of the form "test:<id>:<email>:<plan>".
 import { createClient } from "@supabase/supabase-js";
+import { createVault, withVault } from "./vault.js";
 
 const SLOTS = [1, 2];
 const PROFILE_FIELDS = "plan, plan_renews_at, stripe_customer_id, subscription_id, subscription_status, billing_interval, cancel_at_period_end, extra_questions";
@@ -78,6 +79,19 @@ function supabaseStore(url, serviceKey) {
     async recordLinked(userId, weekStart, seed) {
       must(await sb.from("linked_questions").upsert({ user_id: userId, week_start: weekStart, seed }, { ignoreDuplicates: true }));
     },
+    async listLinked(userId) {
+      return must(await sb.from("linked_questions").select("week_start, seed").eq("user_id", userId).order("week_start"));
+    },
+    // Removes the account and everything kept with it. The profile, charts and
+    // linked questions also cascade from auth.users; deleting them first means
+    // nothing is left behind if the last step fails and is retried.
+    async deleteUser(userId) {
+      must(await sb.from("charts").delete().eq("user_id", userId));
+      must(await sb.from("linked_questions").delete().eq("user_id", userId));
+      const { error } = await sb.auth.admin.deleteUser(userId);
+      if (error && error.status !== 404) throw error;
+      must(await sb.from("profiles").delete().eq("id", userId));
+    },
   };
 }
 
@@ -87,13 +101,14 @@ function memoryStore({ testTokens }) {
   const linked = new Map();       // userId|weekStart → Set(seed)
   const profiles = new Map();     // userId → profile fields set by billing
   const events = new Set();
+  const deleted = new Set();      // test accounts that were deleted stop signing in
   const prof = id => { if (!profiles.has(id)) profiles.set(id, {}); return profiles.get(id); };
   return {
     accounts: !!testTokens,
     async getUser(token) {
       if (!testTokens) return null;
       const m = /^test:([\w-]+):([^:]*):(free|paid)$/.exec(token);
-      return m ? { id: m[1], email: m[2], plan: m[3] } : null;
+      return m && !deleted.has(m[1]) ? { id: m[1], email: m[2], plan: m[3] } : null;
     },
     async getProfile(id, user) {
       const p = profiles.get(id) || {};
@@ -137,10 +152,23 @@ function memoryStore({ testTokens }) {
       if (!linked.has(k)) linked.set(k, new Set());
       linked.get(k).add(String(seed));
     },
+    async listLinked(userId) {
+      const out = [];
+      for (const [k, seeds] of linked) if (k.startsWith(userId + "|")) for (const seed of seeds) out.push({ week_start: k.slice(userId.length + 1), seed });
+      return out.sort((a, b) => a.week_start.localeCompare(b.week_start));
+    },
+    async deleteUser(userId) {
+      charts.delete(userId); profiles.delete(userId); deleted.add(userId);
+      for (const k of [...linked.keys()]) if (k.startsWith(userId + "|")) linked.delete(k);
+    },
   };
 }
 
 export function createStore(env = process.env) {
+  return withVault(baseStore(env), createVault(env));
+}
+
+function baseStore(env) {
   const url = env.SUPABASE_URL, key = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_KEY;
   if (url && key) {
     if (env.AUTH_TEST_TOKENS) throw new Error("AUTH_TEST_TOKENS must not be set together with Supabase");
